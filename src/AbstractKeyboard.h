@@ -51,7 +51,10 @@ class AbstractKeyboard : public QWidget
     Q_OBJECT
 public:
     AbstractKeyboard(QWidget *parent = 0) : QWidget(parent) {
-
+        // 面板 QSS 底色（background-color）只在顶层窗口被自动绘制；嵌入主窗作
+        // 子控件后，普通 QWidget 子类必须显式开 WA_StyledBackground 才画 QSS
+        // 背景——否则面板透明只剩键帽（QFrame 面板不受此限，普通 QWidget 面板必设）
+        setAttribute(Qt::WA_StyledBackground, true);
     }
     ~AbstractKeyboard() { }
 
