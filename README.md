@@ -49,16 +49,16 @@
 
 ## 中文输入（内置能力，非可选项）
 
-拼音输入是键盘的**固有能力**——三字典（单字/词组/谷歌大字典，共约 4.7MB）已随模板
-qrc 编入（`resources/dicts/`），宿主 `include(.pri)` 即得完整中文输入，**不需要、
-也不存在「不带中文」的接入形态**。
+拼音输入是键盘的**固有能力**——三字典（单字 2 万 / 词组 41 万 / 谷歌大字典 6.5 万，
+共约 9.6MB）已随模板 qrc 编入（`resources/dicts/`），宿主 `include(.pri)` 即得完整
+中文输入，**不需要、也不存在「不带中文」的接入形态**。
 
 字典资源路径与 `Keyboard.cpp` 的 `TOUCHKBD_*` 宏默认值逐字一致（无需任何配置）：
 
 | 宏（仅用于覆盖为自定义字典） | 默认路径 | 内容 |
 |---|---|---|
 | `TOUCHKBD_PINYIN_DICT` | `:/ChineseLib/pinyin.txt` | 单字拼音 |
-| `TOUCHKBD_PINYIN_PHRASE_DICT` | `:/ChinesePhraseLib/pinyin_phrase.txt` | 词组 |
+| `TOUCHKBD_PINYIN_PHRASE_DICT` | `:/ChinesePhraseLib/pinyin_phrase.txt` | 词组（41 万条，去声调+ü→v） |
 | `TOUCHKBD_GOOGLE_DICT` | `:/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt` | 谷歌大字典（词频排序） |
 ## 换肤 / 换品牌
 

@@ -359,17 +359,13 @@ void Keyboard::resizeButton()
 ChineseWidget::ChineseWidget(QWidget *parent) :
     QListWidget(parent)
 {
-#ifdef ENABLED_CHINESE_LIB
+    // 字典随模板 qrc 内置（见 resources/TouchKeyboard.qrc），无条件加载：
+    // 中文输入法是固能力，不做宏开关（旧版三个 ENABLED_*_CHINESE_LIB 宏无任何
+    // 定义方，迁移 PUPSIT 时曾因删除宿主 define 导致三表全被编译出去、候选
+    // 全空——宏开关正是这类静默失效的根因，故整体移除）
     loadChineseLib();
-#endif
-
-#ifdef ENABLED_CHINESE_PHRASE_LIB
     loadChinesePhraseLib();
-#endif
-
-#ifdef ENABLED_GOOGLE_CHINESE_LIB
     loadGoogleChineseLib();
-#endif
 
     setFocusPolicy(Qt::NoFocus);
     /* 设置为列表显示模式 */
@@ -512,26 +508,33 @@ void ChineseWidget::loadChinesePhraseLib()
         if (buf.left(1) == "#")
             continue;
 
-        /* 正则匹配词组内容并通过组捕获获取'词组'和'拼音' */
-        const QRegularExpression regExp(QStringLiteral("(\\S+): ([\\S ]+)"));
-        auto phraseIt = regExp.globalMatch(buf);
-        while (phraseIt.hasNext()) {
-            const QRegularExpressionMatch phraseMatch = phraseIt.next();
-            QString second = phraseMatch.captured(1);  /* 词组 */
-            QString first = phraseMatch.captured(2); /* 拼音 */
+        /* 大词库版（41 万条）：逐行正则 globalMatch 开销不可接受（实测启动多花
+         * 数秒），改字符串切分——格式固定「词组: 拼音」，indexOf(':') 一刀两断即
+         * 可，语义与正则版一致（词组侧无冒号） */
+        const int colon = buf.indexOf(QLatin1Char(':'));
+        if (colon <= 0)
+            continue;
+        const QString second = buf.left(colon);           /* 词组 */
+        QString first = buf.mid(colon + 1).trimmed();     /* 拼音（remove 去空格需非 const） */
 
-            QStringList strList = first.split(" ");
-            QString abb;
-            for (int i = 0; i < strList.count(); i++) {
-                /* 获得拼音词组的首字母(用于缩写匹配) */
-                abb += strList.at(i).left(1);
-            }
-            QList<QPair<QString, QString> > &tmp = m_data[first.left(1)];
-            /* 将'拼音(缩写)'和'词组'写入匹配容器 */
-            tmp.append(qMakePair(abb, second));
-            /* 将'拼音(全拼)'和'词组'写入匹配容器 */
-            tmp.append(qMakePair(first.remove(" "), second));
+        if (second.isEmpty() || first.isEmpty())
+            continue;
+
+        QStringList strList = first.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        QString abb;
+        abb.reserve(strList.size());
+        for (const QString &syllable : strList) {
+            /* 获得拼音词组的首字母(用于缩写匹配) */
+            if (!syllable.isEmpty())
+                abb.append(syllable.at(0));
         }
+        if (abb.isEmpty())
+            continue;
+        QList<QPair<QString, QString> > &tmp = m_data[first.left(1)];
+        /* 将'拼音(缩写)'和'词组'写入匹配容器 */
+        tmp.append(qMakePair(abb, second));
+        /* 将'拼音(全拼)'和'词组'写入匹配容器 */
+        tmp.append(qMakePair(QString(first).remove(QLatin1Char(' ')), second));
     }
 
     pinyin.close();

@@ -2,6 +2,7 @@
 #include "NumberKeyboard.h"
 #include "InputManager.h"
 #include <QApplication>
+#include <QAbstractSpinBox>
 
 /**
  * 单例获取
@@ -90,7 +91,15 @@ void InputManager::showKeyboard(QWidget* now)
 {
     if (!now) return;
 
-    AeaQt::AbstractKeyboard *target = now->property("numericInput").toBool()
+    // QSpinBox/QDoubleSpinBox 的焦点实际落在内嵌行编辑（qt_spinbox_lineedit）上，
+    // numericInput 属性写在外层 spinbox——沿 QAbstractSpinBox 父链补查一层拿到判据，
+    // 否则所有数值 spinbox 一律弹全键盘
+    const QWidget *holder = now;
+    if (!holder->property("numericInput").isValid() &&
+        qobject_cast<const QAbstractSpinBox*>(holder->parentWidget()))
+        holder = holder->parentWidget();
+
+    AeaQt::AbstractKeyboard *target = holder->property("numericInput").toBool()
         ? static_cast<AeaQt::AbstractKeyboard*>(numberKeyboard)
         : static_cast<AeaQt::AbstractKeyboard*>(keyboard);
 
