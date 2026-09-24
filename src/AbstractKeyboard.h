@@ -16,6 +16,8 @@
 #include <QKeyEvent>
 #include <QColor>
 #include <QString>
+#include <QPainterPath>
+#include <QRegion>
 
 namespace AeaQt {
 
@@ -31,6 +33,17 @@ inline QColor brandPanelColor()
 {
     static const QColor c(34, 149, 144);
     return c;
+}
+
+/// 圆角窗口遮罩：QSS 的 border-radius 只裁内容不裁窗口，定角会露出底层白底显成方角。
+/// 顶部 Tool 窗按此生成 mask 并配 WA_TranslucentBackground，窗口本体才是真圆角。
+/// @param size   窗口尺寸
+/// @param radius 圆角半径（与面板 QSS 的 border-radius 一致）
+inline QRegion roundedWindowMask(const QSize &size, int radius)
+{
+    QPainterPath path;
+    path.addRoundedRect(QRect(QPoint(0, 0), size), radius, radius);
+    return QRegion(path.toFillPolygon().toPolygon());
 }
 
 class AbstractKeyboard : public QWidget

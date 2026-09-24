@@ -108,6 +108,10 @@ Keyboard::Keyboard(QWidget *parent) :
     if (ui->labPY)
         ui->labPY->setText(brandLogoText());
 
+    // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层白底显成方角——
+    // 透明背景 + 圆角 mask 从窗口层裁掉（半径与 #frame 的 border-radius 一致）
+    setMask(roundedWindowMask(size(), 15));
+
     // 创建中文候选控件（如果需要）
     m_chineseWidget = new ChineseWidget(ui->candidateContainer);
     // 将候选控件添加到 candidateContainer 的布局中（如果容器有布局的话）
@@ -198,6 +202,10 @@ Keyboard::~Keyboard()
 void Keyboard::resizeEvent(QResizeEvent *e)
 {
     resizeButton();
+    // 圆角 mask 随尺寸重算；判重防 setMask 触发二次 resize 时反复重入
+    const QRegion m = roundedWindowMask(size(), 15);
+    if (mask() != m)
+        setMask(m);
 }
 
 void Keyboard::switchCapsLock()

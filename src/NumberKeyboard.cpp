@@ -107,11 +107,15 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
             button->setIconSize(QSize(button->width() / 2, button->height() / 2));
     }
 
-    // 面板与全键盘同款：品牌青底 + 15px 圆角（与全键盘 #keyBoard 规则一致，
+    // 面板与全键盘同款：品牌青底 + 15px 圆角（与全键盘 #frame 规则一致，
     // 但不描灰边——小键盘面板更干净；键帽由 KeyButton 自带白底黑字 QSS）
     this->setStyleSheet(
         QStringLiteral("background-color: %1; border-radius: 15px;")
             .arg(brandPanelColor().name()));
+
+    // 真圆角窗口：QSS 圆角只裁内容不裁窗口，四角露底层白底显成方角——
+    // 透明背景 + 圆角 mask 从窗口层裁掉（半径与上面 QSS 的 border-radius 一致）
+    setMask(roundedWindowMask(kPanelSize, 15));
 }
 
 KeyButton *NumberKeyboard::createButton(QList<KeyButton::Mode> modes)

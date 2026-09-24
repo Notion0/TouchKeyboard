@@ -14,11 +14,10 @@
    <string>Form</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">QWidget#keyBoard{
-border-radius: 15px;        /* 圆角半径 */
-background-color: rgb(34, 149, 144);
-border: 1px solid gray;
-}</string>
+   <string notr="true">/* 顶层窗口不 paint：面板由 #frame 画（青底+圆角+灰边）。
+      早先选择器写成 #keyBoard 与对象名 Keyboard 大小写不匹配，顶层实际露出调色板白底，
+      圆角处显白边——现已由 WA_TranslucentBackground + 圆角 mask 从窗口层解决。 */
+QWidget#Keyboard { background: transparent; }</string>
   </property>
   <widget class="QFrame" name="frame">
    <property name="geometry">
