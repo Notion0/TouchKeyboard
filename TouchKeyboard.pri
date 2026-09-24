@@ -6,7 +6,7 @@
 #
 # 依赖：Qt5 Widgets（Qt 5.15 验证；信号槽用新语法、无 C++11 之后特性）。
 # 资源：模板自带 5 枚图标（qrc 前缀 :/touchkeyboard/icons/），拷走即用。
-# 中文输入：三字典由宿主按需提供同名 qrc 路径（缺失自动降级为无中文输入，见 README「中文输入」）。
+# 中文输入：三字典已随本模板 qrc 编入（resources/dicts/，见 README「中文输入」），宿主零配置即得。
 # 换肤：改 src/AbstractKeyboard.h 的 brandLogoText() / brandPanelColor() 一处，两个键盘同时生效。
 
 TOUCHKBD_ROOT = $$PWD
