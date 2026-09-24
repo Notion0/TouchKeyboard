@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+ <!-- prefix 为 /touchkeyboard，文件路径含 icons/ 段：资源全路径 = :/touchkeyboard/icons/xxx.png
+      （与代码里的 QIcon 路径一一对应；勿把 icons 同时写进 prefix 和文件路径） -->
+ <qresource prefix="/touchkeyboard">
+  <file>icons/backspace.png</file>
+  <file>icons/caplock.png</file>
+  <file>icons/enter.png</file>
+  <file>icons/hideBtn.png</file>
+  <file>icons/space.png</file>
+ </qresource>
+</RCC>
