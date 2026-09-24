@@ -1,5 +1,7 @@
 # TouchKeyboard —— 触摸键盘模板
 
+> 仓库：https://github.com/Notion0/TouchKeyboard （Qt5 Widgets / C++11 / MSVC·GCC 通吃）
+
 全键盘（字母/符号/中文候选）+ 数字小键盘 + 全局 InputManager。Qt5 Widgets、C++11、MSVC(2019)/GCC 通吃。
 从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准。
 
