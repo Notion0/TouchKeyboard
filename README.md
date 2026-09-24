@@ -14,8 +14,13 @@
 2. 主窗口创建后调用一次：
    ```cpp
    #include "InputManager.h"          // 模板 src/ 已在 INCLUDEPATH，无需带目录前缀
-   InputManager::Instance()->Init(this);
+   InputManager::Instance()->Init(this);   // this = 键盘的宿主父窗口（通常是主窗口）
    ```
+   ⚠ **`Init(parent)` 的 parent 即键盘宿主窗口**：两个键盘是该窗口的**普通子控件**
+   （不是顶层 Tool 窗）。Weston/X11 下顶层工具窗每次映射都被抢激活权，主窗失活 →
+   `focusChanged(nullptr)` 收起 → 主窗重新激活还原输入框焦点 → 再弹，形成无限
+   show/hide 拉锯（界面一直闪、键盘位置飘忽）；挂子控件从结构上根除。代价：键盘
+   不浮出宿主窗口边界（宿主是全屏主窗口时无感知）。
 3. 给**纯数字**输入框打动态属性（决定弹小键盘还是全键盘）：
    - `.ui` 里：
      ```xml
@@ -37,10 +42,10 @@
 | 清空 | 底行**清空**键（清拼音缓冲 + 清空输入框） | 底行**清空**键（清空输入框） |
 | 收起 | 点击非输入区 / 失焦 / 标题栏关闭钮 | 点击非输入区 / 失焦 / 确认 |
 | 中文 | 中/英切换 + 拼音候选行（需字典，见下） | 无 |
-| 位置 | 输入框下方，越界自动上翻/贴边 | 同 |
+| 位置 | 输入框下方，越界在**宿主窗口矩形内**上翻/钳制 | 同 |
 
-按键统一走 `AbstractKeyboard::onKeyPressed` 的 QKeyEvent 通道发到焦点控件；两个键盘都是
-无焦点置顶 Tool 窗（`WA_ShowWithoutActivating` + `WindowDoesNotAcceptFocus`），点键不抢焦点。
+按键统一走 `AbstractKeyboard::onKeyPressed` 的 QKeyEvent 通道发到焦点控件；两个键盘是宿主
+窗口的无焦点子控件（子控件本身不抢焦点），点键不抢焦点、不改变应用激活态。
 
 ## 中文输入（可选）
 
@@ -84,3 +89,20 @@ TouchKeyboard/
 
 - 仅覆盖 QLineEdit/QTextEdit；QComboBox/QSpinBox 的内嵌编辑框未做属性透传（PUPSIT 版有，按需再移植）。
 - QTextEdit 场景清空/确认同样生效，但未做多行差异处理（当前宿主无此场景）。
+
+---
+
+## Qt6 移植说明（PUPSIT 内嵌副本，2026-09-24）
+
+本副本相对上游 Notion0/TouchKeyboard（Qt5 Widgets 版）已做 Qt6 移植，供 Qt 6.4.2 工程直接编入：
+
+| Qt5 写法 | Qt6 写法 | 位置 |
+|---|---|---|
+| `#include <QRegExp>` + `QRegExp::exactMatch/indexIn/cap/matchedLength` | `#include <QRegularExpression>` + anchored 模式 `.match().hasMatch()` / `globalMatch()` + `captured()/capturedLength()` | KeyButton.cpp、Keyboard.cpp |
+| `layout->setMargin(0)` | `layout->setContentsMargins(0, 0, 0, 0)` | NumberKeyboard.cpp |
+| `font.setWeight(50)`（Qt5 0-99 制，=Normal） | `font.setWeight(QFont::Normal)` | Keyboard.cpp |
+| `QTextStream::setCodec("UTF-16")`（已移除） | `in.setEncoding(QStringConverter::Encoding::Utf16)` | Keyboard.cpp |
+| 缺 `QFile`/`QRegularExpression` include（Qt5 传递包含） | 显式补上 | Keyboard.cpp、KeyButton.cpp |
+
+行为语义保持不变（anchored 模式等价 exactMatch；全局匹配迭代等价 indexIn 循环）。
+| `QVariant(空串).isNull()`（Qt5 为 true，Qt6 不再）→ KeyButton 构造里「未传 display 时用 value 兜底」失效，字母/数字键帽全空白 | `mode.display.isNull() || mode.display.toString().isEmpty()` | KeyButton.cpp |

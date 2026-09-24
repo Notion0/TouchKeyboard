@@ -2,8 +2,6 @@
 #include "NumberKeyboard.h"
 #include "InputManager.h"
 #include <QApplication>
-#include <QScreen>
-#include <QGuiApplication>
 
 /**
  * 单例获取
@@ -32,24 +30,24 @@ void InputManager::Init(QWidget *parent)
 {
     mainWidget = parent;
 
-    keyboard = new AeaQt::Keyboard(nullptr);
-    numberKeyboard = new AeaQt::NumberKeyboard(nullptr);
+    // 必须挂到主窗口（Qt6 移植修正）：无父 Tool 窗在 Weston/X11 下每次 show
+    // 都被当作新 top-level surface 抢激活权——主窗失活触发 focusChanged(nullptr)
+    // 收起键盘，焦点回输入框又弹出，形成 show/hide 拉锯（界面一直闪、位置飘忽）。
+    // 挂父后键盘是主窗口拥有的工具窗，显示不改变应用激活态，拉锯根除
+    keyboard = new AeaQt::Keyboard(parent);
+    numberKeyboard = new AeaQt::NumberKeyboard(parent);
 
     AeaQt::AbstractKeyboard *kbs[] = {keyboard, numberKeyboard};
     for (AeaQt::AbstractKeyboard *kb : kbs) {
-        kb->setWindowFlags(
-            Qt::Tool |
-            Qt::FramelessWindowHint |
-            Qt::WindowStaysOnTopHint |
-            Qt::WindowDoesNotAcceptFocus
-            );
-        kb->setAttribute(Qt::WA_ShowWithoutActivating, true);
-        kb->hide();
-
-        // 禁止键盘抢焦点
+        // 作主窗口的普通子控件（不是顶层 Tool 窗）： Weston/X11 下顶层工具窗
+        // 每次映射都被抢走激活权——主窗失活触发 focusChanged(nullptr) 收起，
+        // 主窗重新激活又还原输入框焦点再弹，形成 show/hide 拉锯（界面一直闪）。
+        // 子控件显示不触碰激活态，从结构上根除；代价是键盘不浮出主窗口边界
+        // （PUPSIT 单全屏窗口，无此场景）
         kb->setFocusPolicy(Qt::NoFocus);
         for (auto child : kb->findChildren<QWidget*>())
             child->setFocusPolicy(Qt::NoFocus);
+        kb->hide();
     }
 
     // 全键盘输入信号（数字小键盘自带 QKeyEvent 通道，无需接线）
@@ -112,31 +110,29 @@ void InputManager::showKeyboard(QWidget* now)
     target->adjustSize();
     QSize keyboardSize = target->size();
 
-    // 获取屏幕
-    QScreen *screen = QGuiApplication::screenAt(globalPos);
-    if (!screen)
-        screen = QGuiApplication::primaryScreen();
+    // 键盘是主窗口子控件：换算到主窗口本地坐标，边界按主窗矩形钳制
+    // （子控件不可能绕出主窗，无需再管屏幕）
+    const QPoint hostOrigin = mainWidget->mapToGlobal(QPoint(0, 0));
+    const QRect hostRect = mainWidget->rect();
 
-    QRect screenRect = screen->availableGeometry();
-
-    int x = globalPos.x();
-    int y = globalPos.y();
+    int x = globalPos.x() - hostOrigin.x();
+    int y = globalPos.y() - hostOrigin.y();
 
     // ===== 右侧越界 =====
-    if (x + keyboardSize.width() > screenRect.right())
-        x = screenRect.right() - keyboardSize.width();
+    if (x + keyboardSize.width() > hostRect.right())
+        x = hostRect.right() - keyboardSize.width();
 
     // ===== 左侧越界 =====
-    if (x < screenRect.left())
-        x = screenRect.left();
+    if (x < hostRect.left())
+        x = hostRect.left();
 
     // ===== 底部越界 -> 放到输入框上方 =====
-    if (y + keyboardSize.height() > screenRect.bottom())
-        y = now->mapToGlobal(QPoint(0, 0)).y() - keyboardSize.height();
+    if (y + keyboardSize.height() > hostRect.bottom())
+        y = now->mapToGlobal(QPoint(0, 0)).y() - hostOrigin.y() - keyboardSize.height();
 
     // ===== 顶部越界 =====
-    if (y < screenRect.top())
-        y = screenRect.top();
+    if (y < hostRect.top())
+        y = hostRect.top();
 
     target->move(x, y);
     target->show();

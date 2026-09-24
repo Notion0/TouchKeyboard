@@ -1,6 +1,8 @@
 #include "Keyboard.h"
 #include "KeyButton.h"
 #include <QVBoxLayout>
+#include <QFile>
+#include <QStringConverter>
 #include <QApplication>
 #include <QPushButton>
 #include <QLineEdit>
@@ -10,7 +12,7 @@
 #include <QScroller>
 #endif
 
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QDebug>
 #include "ui_Keyboard.h"
 
@@ -267,8 +269,8 @@ void Keyboard::onButtonPressed(const int &code, const QString &text)
         return;
     }
 
-    QRegExp rx("[a-zA-Z]");
-    if (!rx.exactMatch(text) && m_bufferText.isEmpty()) {
+    const QRegularExpression rx(QStringLiteral("^[a-zA-Z]$"));
+    if (!rx.match(text).hasMatch() && m_bufferText.isEmpty()) {
         onKeyPressed(code, text);
         return;
     }
@@ -447,12 +449,13 @@ void ChineseWidget::addOneItem(const QString &text)
     QFont font;
     font.setPointSize(18);
     font.setBold(true);
-    font.setWeight(50);
+    font.setWeight(QFont::Normal);
     item->setFont(font);
 
     /* 设置文字居中 */
     item->setTextAlignment(Qt::AlignCenter);
-    bool isChinese = QRegExp("^[\u4E00-\u9FA5]+").indexIn(text.left(1)) != -1;
+    const bool isChinese = QRegularExpression(QStringLiteral("^[\u4E00-\u9FA5]+"))
+            .match(text.left(1)).hasMatch();
 
     int width = font.pointSize();
     if (isChinese)
@@ -474,14 +477,13 @@ void ChineseWidget::loadChineseLib()
 
     while (! pinyin.atEnd()) {
         QString buf = QString::fromUtf8(pinyin.readLine()).trimmed();
-        QRegExp regExp("^[\u4E00-\u9FA5]+");
-
-        int index = regExp.indexIn(buf);
-        if (index == -1)
+        const QRegularExpression regExp(QStringLiteral("^[\u4E00-\u9FA5]+"));
+        if (!regExp.match(buf).hasMatch())
             continue;
 
-        QString first = buf.right(buf.size() - regExp.matchedLength());
-        QString second = buf.mid(index, regExp.matchedLength());
+        const QRegularExpressionMatch singleMatch = regExp.match(buf);
+        QString first = buf.right(buf.size() - singleMatch.capturedLength());
+        QString second = singleMatch.captured(0);
 
         QList<QPair<QString, QString> > &tmp = m_data[first.left(1)];
         tmp.append(qMakePair(first, second));
@@ -510,12 +512,12 @@ void ChineseWidget::loadChinesePhraseLib()
             continue;
 
         /* 正则匹配词组内容并通过组捕获获取'词组'和'拼音' */
-        QRegExp regExp("(\\S+): ([\\S ]+)");
-        int pos = 0;
-        while ((pos = regExp.indexIn(buf, pos)) != -1) {
-            pos += regExp.matchedLength();
-            QString second = regExp.cap(1);  /* 词组 */
-            QString first = regExp.cap(2); /* 拼音 */
+        const QRegularExpression regExp(QStringLiteral("(\\S+): ([\\S ]+)"));
+        auto phraseIt = regExp.globalMatch(buf);
+        while (phraseIt.hasNext()) {
+            const QRegularExpressionMatch phraseMatch = phraseIt.next();
+            QString second = phraseMatch.captured(1);  /* 词组 */
+            QString first = phraseMatch.captured(2); /* 拼音 */
 
             QStringList strList = first.split(" ");
             QString abb;
@@ -543,25 +545,21 @@ void ChineseWidget::loadGoogleChineseLib()
     }
 
     QTextStream in(&file);
-    in.setCodec("UTF-16"); // change the file codec to UTF-16.
+    in.setEncoding(QStringConverter::Encoding::Utf16); // UTF-16（BOM 自适应）
 
     QStringList lines = in.readAll().split("\n");
 
     for (QString each : lines) {
-        QRegExp re(R"RX((\S+).((?:-?\d+)(?:\.\d+)).((?:-?\d+)(?:\.\d+)?).(.*))RX");
-        int pos = 0;
-
+        const QRegularExpression re(QStringLiteral(R"RX((\S+).((?:-?\d+)(?:\.\d+)).((?:-?\d+)(?:\.\d+)?).(.*))RX"));
         bool isMatching = false;
-        while ((pos = re.indexIn(each, pos)) != -1) {
-            pos += re.matchedLength();
-            if (re.captureCount() != 4)
-                continue;
-
+        auto dictIt = re.globalMatch(each);
+        while (dictIt.hasNext()) {
+            const QRegularExpressionMatch dictMatch = dictIt.next();
             isMatching = true;
-            QString hanzi = re.cap(1); // 汉字
-            QString weight = re.cap(2); // 权重
-            QString tmp = re.cap(3); // 未知
-            QString pinyin = re.cap(4); // 拼音(可能是词组)
+            QString hanzi = dictMatch.captured(1); // 汉字
+            QString weight = dictMatch.captured(2); // 权重
+            QString tmp = dictMatch.captured(3); // 未知
+            QString pinyin = dictMatch.captured(4); // 拼音(可能是词组)
 
             QStringList strList = pinyin.split(" ");
             QString abb;

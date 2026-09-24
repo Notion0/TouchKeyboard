@@ -1,5 +1,6 @@
 #include "KeyButton.h"
 #include <QDebug>
+#include <QRegularExpression>
 
 using namespace AeaQt;
 
@@ -11,12 +12,12 @@ const QString DEFAULT_STYLE_SHEET = "AeaQt--KeyButton { background: white; borde
 
 KeyButton::Type KeyButton::find(const QString &value)
 {
-    QRegExp rx("[a-z]");
-    if (rx.exactMatch(value))
+    static const QRegularExpression lowerRx(QStringLiteral("^[a-z]$"));
+    static const QRegularExpression upperRx(QStringLiteral("^[A-Z]$"));
+    if (lowerRx.match(value).hasMatch())
         return KeyButton::LowerCase;
 
-    rx = QRegExp("[A-Z]");
-    if (rx.exactMatch(value))
+    if (upperRx.match(value).hasMatch())
         return KeyButton::UpperCase;
 
     return KeyButton::SpecialChar;
@@ -73,7 +74,12 @@ KeyButton::KeyButton(const QList<KeyButton::Mode> modes, QWidget *parent) :
             mode.type = find(mode.value);
         }
 
-        if (mode.display.isNull())
+        // Qt6 移植修正：Qt5 的 QVariant(空串).isNull()==true 兜底「未传 display
+        // 时用 value 当显示文本」；Qt6 该语义变化导致 bar1/2/3 的字母/数字键
+        // display 停在空串——键帽全空白（仅显式传 display 的 bar4 有字）。
+        // 判空追加 isEmpty 兜底，两种语义下都成立；Caps/退格等空显示键的图标
+        // 由 Keyboard::resizeButton 按 key 设置，不受影响
+        if (mode.display.isNull() || mode.display.toString().isEmpty())
             mode.display = mode.value;
 
         m_modes.append(mode);
