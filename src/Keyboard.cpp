@@ -30,9 +30,10 @@ const QString ENTER_ICON     = ":/touchkeyboard/icons/enter.png";
 const QString SPACE_ICON     = ":/touchkeyboard/icons/space.png";
 const QString CAPLOCK_ICON   = ":/touchkeyboard/icons/caplock.png";
 
-// 中文输入三字典（qrc 路径）。模板不内置 8MB 级字典资产，由宿主工程提供同路径资源；
-// 缺失时三个 load* 均优雅降级（打 qDebug 后返回，键盘其余功能不受影响），
-// 不需要中文输入的宿主可就此不管。要改路径在工程 .pro 里 -D 覆盖，或直接改这里。
+// 中文输入三字典（qrc 路径，随模板 qrc 编入——中文输入是固有能力，非可选项）。
+// 资源路径与模板 resources/TouchKeyboard.qrc 的三个 qresource 前缀一一对应；
+// load* 里的打开失败分支仅作防御保留（资源损坏/自定义路径覆盖失误时报错用），
+// 正常接入不会缺字典。要换自定义字典：.pro 里 -D 覆盖宏，或直接改这里。
 #ifndef TOUCHKBD_PINYIN_DICT
 #define TOUCHKBD_PINYIN_DICT       ":/ChineseLib/pinyin.txt"
 #endif

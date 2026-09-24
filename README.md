@@ -47,18 +47,19 @@
 按键统一走 `AbstractKeyboard::onKeyPressed` 的 QKeyEvent 通道发到焦点控件；两个键盘是宿主
 窗口的无焦点子控件（子控件本身不抢焦点），点键不抢焦点、不改变应用激活态。
 
-## 中文输入（可选）
+## 中文输入（内置能力，非可选项）
 
-三字典由宿主工程用同名 qrc 路径提供，**缺失时自动降级**（load 失败打 qDebug 后返回，键盘其余功能正常）：
+拼音输入是键盘的**固有能力**——三字典（单字/词组/谷歌大字典，共约 4.7MB）已随模板
+qrc 编入（`resources/dicts/`），宿主 `include(.pri)` 即得完整中文输入，**不需要、
+也不存在「不带中文」的接入形态**。
 
-| 宏（可 -D 覆盖） | 默认路径 | 内容 |
+字典资源路径与 `Keyboard.cpp` 的 `TOUCHKBD_*` 宏默认值逐字一致（无需任何配置）：
+
+| 宏（仅用于覆盖为自定义字典） | 默认路径 | 内容 |
 |---|---|---|
 | `TOUCHKBD_PINYIN_DICT` | `:/ChineseLib/pinyin.txt` | 单字拼音 |
 | `TOUCHKBD_PINYIN_PHRASE_DICT` | `:/ChinesePhraseLib/pinyin_phrase.txt` | 词组 |
-| `TOUCHKBD_GOOGLE_DICT` | `:/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt` | 谷歌大字典（~8MB，词频排序） |
-
-不需要中文的宿主：什么都不用做。
-
+| `TOUCHKBD_GOOGLE_DICT` | `:/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt` | 谷歌大字典（词频排序） |
 ## 换肤 / 换品牌
 
 改 `src/AbstractKeyboard.h` 一处，两个键盘同时生效：

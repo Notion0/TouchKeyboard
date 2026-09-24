@@ -9,4 +9,16 @@
   <file>icons/hideBtn.png</file>
   <file>icons/space.png</file>
  </qresource>
+ <!-- 中文拼音三字典（随模板编入=中文输入法是固有能力，不是可选项）：资源全路径
+      与 Keyboard.cpp 的 TOUCHKBD_* 宏默认值逐字一致（:/ChineseLib/pinyin.txt 等），
+      宿主 include .pri 即得完整中文输入，无需提供任何字典 -->
+ <qresource prefix="/ChineseLib">
+  <file>dicts/pinyin.txt</file>
+ </qresource>
+ <qresource prefix="/ChinesePhraseLib">
+  <file>dicts/pinyin_phrase.txt</file>
+ </qresource>
+ <qresource prefix="/GoogleChineseLib">
+  <file>dicts/rawdict_utf16_65105_freq_sort.txt</file>
+ </qresource>
 </RCC>
