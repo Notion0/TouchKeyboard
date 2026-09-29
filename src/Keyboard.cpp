@@ -2,7 +2,9 @@
 #include "KeyButton.h"
 #include <QVBoxLayout>
 #include <QFile>
+#if (QT_VERSION >= QT_VERSION_CHECK(6,0,0))
 #include <QStringConverter>
+#endif
 #include <QApplication>
 #include <QPushButton>
 #include <QLineEdit>
@@ -549,7 +551,11 @@ void ChineseWidget::loadGoogleChineseLib()
     }
 
     QTextStream in(&file);
+#if (QT_VERSION >= QT_VERSION_CHECK(6,0,0))
     in.setEncoding(QStringConverter::Encoding::Utf16); // UTF-16（BOM 自适应）
+#else
+    in.setCodec("UTF-16"); // Qt5 等价 API（BOM 自适应；setEncoding 为 Qt6 起才有）
+#endif
 
     QStringList lines = in.readAll().split("\n");
 
