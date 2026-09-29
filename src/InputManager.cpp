@@ -52,9 +52,8 @@ void InputManager::Init(QWidget *parent)
     }
 
     // 全键盘输入信号（数字小键盘自带 QKeyEvent 通道，无需接线）
-    connect(keyboard, &AeaQt::Keyboard::pressedChanged, this, &InputManager::onKeyboardInput);
     // 焦点变化信号
-    connect(qApp, SIGNAL(focusChanged(QWidget*,QWidget*)),this, SLOT(focusChanged(QWidget*,QWidget*)));
+    connect(qApp, &QApplication::focusChanged, this, &InputManager::focusChanged);
 
     // 全局事件过滤（用于捕获点击）
     qApp->installEventFilter(this);
@@ -179,30 +178,6 @@ void InputManager::focusChanged(QWidget *old, QWidget *now)
     {
         // 其他控件 → 隐藏
         hideKeyboards();
-    }
-}
-
-/**
- * 键盘输入处理（全键盘通道）
- * - 将虚拟键盘输入写入当前控件
- */
-void InputManager::onKeyboardInput(int code, QString text)
-{
-    Q_UNUSED(code);
-
-    if (!currentInput) return;
-
-    // 防止焦点丢失
-    if (!currentInput->hasFocus())
-        currentInput->setFocus();
-
-    if (QLineEdit *edit = qobject_cast<QLineEdit*>(currentInput))
-    {
-        edit->insert(text);
-    }
-    else if (QTextEdit *edit = qobject_cast<QTextEdit*>(currentInput))
-    {
-        edit->insertPlainText(text);
     }
 }
 

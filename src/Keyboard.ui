@@ -16,7 +16,7 @@
   <property name="styleSheet">
    <string notr="true">/* 顶层窗口不 paint：面板由 #frame 画（青底+圆角+灰边）。
       早先选择器写成 #keyBoard 与对象名 Keyboard 大小写不匹配，顶层实际露出调色板白底，
-      圆角处显白边——现已由 WA_TranslucentBackground + 圆角 mask 从窗口层解决。 */
+      圆角处显白边——现由圆角 mask 从窗口层裁掉（5e3c00e 起不用 WA_TranslucentBackground：mask 就位后零增益且多一层合成路径，实测观感一致）。 */
 QWidget#Keyboard { background: transparent; }</string>
   </property>
   <widget class="QFrame" name="frame">

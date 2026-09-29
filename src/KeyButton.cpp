@@ -25,6 +25,11 @@ KeyButton::Type KeyButton::find(const QString &value)
 
 KeyButton::Mode KeyButton::find(KeyButton::Type type)
 {
+    // 空 modes 防御（release 下 Q_ASSERT 不生效）：m_modes.first() 越界即 UB，
+    // 此处保持现状返回—— Keyboard::switchCapsLock 等会遍历所有 KeyButton
+    if (m_modes.isEmpty())
+        return m_mode;
+
     foreach (KeyButton::Mode mode, m_modes) {
         if (mode.type == type)
             return mode;
@@ -35,6 +40,9 @@ KeyButton::Mode KeyButton::find(KeyButton::Type type)
 
 KeyButton::Mode KeyButton::findNext()
 {
+    if (m_modes.isEmpty())
+        return m_mode;
+
     for(int i = 0; i < m_modes.count(); i++) {
         KeyButton::Mode mode = m_modes[i];
         if (mode.display == m_mode.display) {
@@ -51,8 +59,9 @@ KeyButton::Mode KeyButton::findNext()
 void KeyButton::setDisplayContent(const QVariant &content)
 {
     if (content.type() == QVariant::String) {
-        const QString &text = content.toString().toStdString().data();
-        this->setText(text);
+        // 直接取 QString：原写法 content.toString().toStdString().data() 先转
+        // UTF-8 字节再拼回 QString，纯往返还多一层临时对象生命周期陷阱
+        this->setText(content.toString());
     }
     else if (content.type() == QVariant::Icon) {
         const QIcon &icon = content.value<QIcon>();

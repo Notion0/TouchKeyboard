@@ -1,9 +1,9 @@
 # TouchKeyboard —— 触摸键盘模板
 
-> 仓库：https://github.com/Notion0/TouchKeyboard （Qt5 Widgets / C++11 / MSVC·GCC 通吃）
+> 仓库：https://github.com/Notion0/TouchKeyboard （Qt Widgets 5.15 / 6.x 双版本 / C++11 / MSVC·GCC 通吃）
 
-全键盘（字母/符号/中文候选）+ 数字小键盘 + 全局 InputManager。Qt5 Widgets、C++11、MSVC(2019)/GCC 通吃。
-从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准。
+全键盘（字母/符号/中文候选）+ 数字小键盘 + 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
+从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准；现同时供 PressureMonitor（Qt 5.15 线）与 PUPSIT（Qt 6 线）两个宿主使用。
 
 ## 30 秒接入
 
@@ -88,22 +88,27 @@ TouchKeyboard/
 
 ## 已知边界
 
-- 仅覆盖 QLineEdit/QTextEdit；QComboBox/QSpinBox 的内嵌编辑框未做属性透传（PUPSIT 版有，按需再移植）。
+- 仅覆盖 QLineEdit/QTextEdit；QAbstractSpinBox（QSpinBox/QDoubleSpinBox）已沿父链补查
+  一层拿到 numericInput 判据；**QComboBox 的可编辑行编辑尚未做**属性透传（按需再补）。
 - QTextEdit 场景清空/确认同样生效，但未做多行差异处理（当前宿主无此场景）。
+- 全键盘「回车」提交 = 失焦触发（与数字小键盘「确认」同路径）：QLineEdit 对改过的文本
+  失焦会自行发一次 `editingFinished`；**未修改即回车/确认不会发**（与 Qt 硬件键盘的
+  Return 直发路径有别——直发 Return 键事件时未修改也会发 EF）。
 
 ---
 
-## Qt6 移植说明（PUPSIT 内嵌副本，2026-09-24）
+## Qt 版本兼容（移植记录，2026-09-24）
 
-本副本相对上游 Notion0/TouchKeyboard（Qt5 Widgets 版）已做 Qt6 移植，供 Qt 6.4.2 工程直接编入：
+模板原为 Qt5 Widgets；PUPSIT（Qt 6）接入时做过一轮 API 迁移，`3a6cfe1` 起补齐
+`QT_VERSION` 守卫后两版本同树编译（Qt6 分支逐字节不变，Qt5 分支回落旧 API）：
 
 | Qt5 写法 | Qt6 写法 | 位置 |
 |---|---|---|
 | `#include <QRegExp>` + `QRegExp::exactMatch/indexIn/cap/matchedLength` | `#include <QRegularExpression>` + anchored 模式 `.match().hasMatch()` / `globalMatch()` + `captured()/capturedLength()` | KeyButton.cpp、Keyboard.cpp |
 | `layout->setMargin(0)` | `layout->setContentsMargins(0, 0, 0, 0)` | NumberKeyboard.cpp |
 | `font.setWeight(50)`（Qt5 0-99 制，=Normal） | `font.setWeight(QFont::Normal)` | Keyboard.cpp |
-| `QTextStream::setCodec("UTF-16")`（已移除） | `in.setEncoding(QStringConverter::Encoding::Utf16)` | Keyboard.cpp |
+| `QTextStream::setCodec("UTF-16")` | `in.setEncoding(QStringConverter::Encoding::Utf16)`（include 与调用均以 `QT_VERSION >= 6` 守卫，5.15 回落 `setCodec`） | Keyboard.cpp |
 | 缺 `QFile`/`QRegularExpression` include（Qt5 传递包含） | 显式补上 | Keyboard.cpp、KeyButton.cpp |
+| `QVariant(空串).isNull()`（Qt5 为 true，Qt6 不再）→ KeyButton 构造里「未传 display 时用 value 兜底」失效，字母/数字键帽全空白 | `mode.display.isNull() \|\| mode.display.toString().isEmpty()` | KeyButton.cpp |
 
 行为语义保持不变（anchored 模式等价 exactMatch；全局匹配迭代等价 indexIn 循环）。
-| `QVariant(空串).isNull()`（Qt5 为 true，Qt6 不再）→ KeyButton 构造里「未传 display 时用 value 兜底」失效，字母/数字键帽全空白 | `mode.display.isNull() || mode.display.toString().isEmpty()` | KeyButton.cpp |

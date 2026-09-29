@@ -113,9 +113,9 @@ Keyboard::Keyboard(QWidget *parent) :
     if (ui->labPY)
         ui->labPY->setText(brandLogoText());
 
-    // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层白底显成方角——
+    // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层显成方角——
     // 透明背景 + 圆角 mask 从窗口层裁掉（半径与 #frame 的 border-radius 一致）
-    setMask(roundedWindowMask(size(), 15));
+    setMask(roundedWindowMask(size(), kCornerRadius));
 
     // 创建中文候选控件（如果需要）
     m_chineseWidget = new ChineseWidget(ui->candidateContainer);
@@ -208,7 +208,7 @@ void Keyboard::resizeEvent(QResizeEvent *e)
 {
     resizeButton();
     // 圆角 mask 随尺寸重算；判重防 setMask 触发二次 resize 时反复重入
-    const QRegion m = roundedWindowMask(size(), 15);
+    const QRegion m = roundedWindowMask(size(), kCornerRadius);
     if (mask() != m)
         setMask(m);
 }
@@ -246,11 +246,10 @@ void Keyboard::onButtonPressed(const int &code, const QString &text)
     if (code == Qt::Key_Enter || code == Qt::Key_Return) {
         QWidget *w = QApplication::focusWidget();
         if (w) {
-            // 如果是 QLineEdit，触发完成信号
-            if (auto lineEdit = qobject_cast<QLineEdit *>(w)) {
-                emit lineEdit->editingFinished();
-            }
-            // 关键：让输入框失去焦点（否则仍处于编辑状态）
+            // 提交 = 主动失焦（与数字小键盘「确认」键同一路径）：QLineEdit 对
+            // 「改过的文本」失焦会自行发一次 editingFinished——Qt5.15 实测证实
+            // （同时实测：另加手动 emit lineEdit->editingFinished() 会与失焦
+            // 路径叠加成双发，宿主「确定后生效」字段被触发两遍，故只走失焦）
             w->clearFocus();
         }
         // 收起键盘
@@ -296,32 +295,6 @@ KeyButton *Keyboard::createButton(QList<KeyButton::Mode> modes)
     button->onReponse(this, SLOT(onButtonPressed(const int&, const QString&)));
     button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     return button;
-}
-
-QWidget *Keyboard::createBar(const QList<QList<KeyButton::Mode> > &modes)
-{
-    QWidget *widget = new QWidget;
-
-    QHBoxLayout *h = new QHBoxLayout;
-    for (int i = 0; i < modes.count(); i++) {
-        KeyButton *button = createButton(modes.at(i));
-        h->addWidget(button);
-    }
-
-    widget->setLayout(h);
-    return widget;
-}
-
-QWidget *Keyboard::chineseBar()
-{
-    m_chineseWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    return m_chineseWidget;
-}
-
-
-QWidget *Keyboard::candidateList()
-{
-    return m_chineseWidget;
 }
 
 void Keyboard::resizeButton()
@@ -404,12 +377,8 @@ ChineseWidget::ChineseWidget(QWidget *parent) :
 
 void ChineseWidget::setText(const QString &text)
 {
-    for (int i = 0; i < count(); i++) {
-        QListWidgetItem *item = takeItem(i);
-        delete item;
-        item = NULL;
-    }
-
+    /* clear() 即删除全部旧候选项（原 takeItem(i)+delete 循环每次取走后索引
+     * 前移会隔项漏删，且删除本就由 clear() 统一完成——整段可直接去掉） */
     clear();
 
     addOneItem(text);
@@ -447,8 +416,7 @@ void ChineseWidget::addOneItem(const QString &text)
     QListWidgetItem *item = new QListWidgetItem(text, this);
     QFont font;
     font.setPointSize(18);
-    font.setBold(true);
-    font.setWeight(QFont::Normal);
+    font.setWeight(QFont::Normal);   // setBold(true) 会被本行覆盖成 Normal，矛盾调用已删
     item->setFont(font);
 
     /* 设置文字居中 */
@@ -558,9 +526,13 @@ void ChineseWidget::loadGoogleChineseLib()
 #endif
 
     QStringList lines = in.readAll().split("\n");
+    if (lines.constLast().isEmpty())
+        lines.removeLast();
 
-    for (QString each : lines) {
-        const QRegularExpression re(QStringLiteral(R"RX((\S+).((?:-?\d+)(?:\.\d+)).((?:-?\d+)(?:\.\d+)?).(.*))RX"));
+    /* 逐行解析「汉字 权重 未知 拼音」——正则提到循环外只编译一次：
+     * 6.5 万行每行现构造 QRegularExpression 会把模式重编译一遍，启动明显变慢 */
+    static const QRegularExpression re(QStringLiteral(R"RX((\S+).((?:-?\d+)(?:\.\d+)).((?:-?\d+)(?:\.\d+)?).(.*))RX"));
+    for (const QString &each : lines) {
         bool isMatching = false;
         auto dictIt = re.globalMatch(each);
         while (dictIt.hasNext()) {
@@ -573,6 +545,7 @@ void ChineseWidget::loadGoogleChineseLib()
 
             QStringList strList = pinyin.split(" ");
             QString abb;
+            abb.reserve(strList.count());
             for (int i = 0; i < strList.count(); i++) {
                 /* 获得拼音词组的首字母(用于缩写匹配) */
                 abb += strList.at(i).left(1);

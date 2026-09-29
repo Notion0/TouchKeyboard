@@ -1,5 +1,6 @@
 // Keyboard/Keyboard.h
-// 触摸键盘主面板：字母/符号/中文候选输入，经 InputManager 全局挂载到行编辑。
+// 触摸键盘主面板：字母/符号/中文候选输入——按键经 AbstractKeyboard::onKeyPressed
+// 以 QKeyEvent 送达焦点控件；弹/收与选键盘由 InputManager 按焦点驱动。
 #ifndef AEA_KEYBOARD_H
 #define AEA_KEYBOARD_H
 
@@ -23,7 +24,7 @@ class ChineseWidget : public QListWidget {
     Q_OBJECT
 public:
     /// @brief 中文候选部件构造
-    ChineseWidget(QWidget *parent = NULL);
+    ChineseWidget(QWidget *parent = nullptr);
     /// @brief 设置拼音缓冲文本
     void setText(const QString &text);
 
@@ -38,11 +39,11 @@ private slots:
 private:
     /// @brief 追加一个候选词
     void addOneItem(const QString &text);
-    /// @brief 加载字库（按 qrc 宏启用）
+    /// @brief 加载单字拼音库（资源路径见 TOUCHKBD_PINYIN_DICT）
     void loadChineseLib();
-    /// @brief 加载词组库（按 qrc 宏启用）
+    /// @brief 加载词组库（资源路径见 TOUCHKBD_PINYIN_PHRASE_DICT）
     void loadChinesePhraseLib();
-    /// @brief 加载谷歌汉字库（默认启用）
+    /// @brief 加载谷歌大字典（资源路径见 TOUCHKBD_GOOGLE_DICT）
     void loadGoogleChineseLib();
 
 private:
@@ -54,7 +55,7 @@ class Keyboard : public AbstractKeyboard
     Q_OBJECT
 public:
     /// @brief 键盘构造：构建按键布局
-    Keyboard(QWidget *parent = NULL);
+    Keyboard(QWidget *parent = nullptr);
     ~Keyboard();  // ========== 新增析构函数 ==========
 
 protected:
@@ -77,14 +78,6 @@ private:
     /// @brief 造一个多态按键
     KeyButton *createButton(QList<KeyButton::Mode> modes);
 
-    /// @brief 造一行按键
-    QWidget *createBar(const QList<QList<KeyButton::Mode> > &modes);
-    /// @brief 中文输入行（拼音+候选）
-    QWidget *chineseBar();
-
-    /// @brief 候选词列表区
-    QWidget *candidateList();
-
     /// @brief 按容器尺寸重算按键几何
     void resizeButton();
 
@@ -93,10 +86,6 @@ private:
     bool m_isChinese;
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
-
-signals:
-    /// @brief 按键信号（码+文本），供目标行编辑接收
-    void pressedChanged(int code, QString text);
 
 };
 

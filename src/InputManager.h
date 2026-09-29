@@ -35,8 +35,6 @@ public:
 
 private slots:
     void focusChanged(QWidget *old, QWidget *now);
-
-    void onKeyboardInput(int code, QString text);
 private:
     explicit InputManager(QObject *parent = nullptr);
 

@@ -38,7 +38,7 @@ public:
     };
 
     /// @brief 多形态按键构造（主/大写/符号等形态集）
-    KeyButton(const QList<Mode> modes = QList<Mode>(), QWidget *parent = NULL);
+    KeyButton(const QList<Mode> modes = QList<Mode>(), QWidget *parent = nullptr);
     /// @brief 当前形态
     Mode mode();
 

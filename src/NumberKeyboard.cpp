@@ -115,7 +115,7 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
 
     // 真圆角窗口：QSS 圆角只裁内容不裁窗口，四角露底层白底显成方角——
     // 透明背景 + 圆角 mask 从窗口层裁掉（半径与上面 QSS 的 border-radius 一致）
-    setMask(roundedWindowMask(kPanelSize, 15));
+    setMask(roundedWindowMask(kPanelSize, kCornerRadius));
 }
 
 KeyButton *NumberKeyboard::createButton(QList<KeyButton::Mode> modes)

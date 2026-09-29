@@ -35,8 +35,8 @@ inline QColor brandPanelColor()
     return c;
 }
 
-/// 圆角窗口遮罩：QSS 的 border-radius 只裁内容不裁窗口，定角会露出底层白底显成方角。
-/// 顶部 Tool 窗按此生成 mask 并配 WA_TranslucentBackground，窗口本体才是真圆角。
+/// 圆角窗口遮罩：QSS 的 border-radius 只裁内容不裁窗口，定角会露出底层内容显成方角。
+/// 键盘（含嵌作宿主子控件的形态）按此生成 mask，由窗口/控件层裁出真圆角。
 /// @param size   窗口尺寸
 /// @param radius 圆角半径（与面板 QSS 的 border-radius 一致）
 inline QRegion roundedWindowMask(const QSize &size, int radius)
@@ -46,11 +46,15 @@ inline QRegion roundedWindowMask(const QSize &size, int radius)
     return QRegion(path.toFillPolygon().toPolygon());
 }
 
+/// 面板圆角半径（px）：两键盘 QSS border-radius 与圆角 mask 的唯一来源，
+/// 三处（Keyboard.cpp / NumberKeyboard.cpp / 两处 setMask）必须与此一致
+constexpr int kCornerRadius = 15;
+
 class AbstractKeyboard : public QWidget
 {
     Q_OBJECT
 public:
-    AbstractKeyboard(QWidget *parent = 0) : QWidget(parent) {
+    AbstractKeyboard(QWidget *parent = nullptr) : QWidget(parent) {
         // 面板 QSS 底色（background-color）只在顶层窗口被自动绘制；嵌入主窗作
         // 子控件后，普通 QWidget 子类必须显式开 WA_StyledBackground 才画 QSS
         // 背景——否则面板透明只剩键帽（QFrame 面板不受此限，普通 QWidget 面板必设）
@@ -58,15 +62,10 @@ public:
     }
     ~AbstractKeyboard() { }
 
-    const QString name() { return m_name; }
-    void setName(const QString &name) { m_name = name; }
-
 public slots:
-    virtual void update(const QString &text) { Q_UNUSED(text); }
-
+    /// @brief 把一次按键以 QKeyEvent（press+release）发给当前焦点控件
     void onKeyPressed(int key, QString value)
     {
-        // qDebug() << "key: " << key << "Value: " << value;        //按键按下对应字母输出
         QWidget *receiver = QApplication::focusWidget();
         if (!receiver)
             return;
@@ -78,11 +77,7 @@ public slots:
         QApplication::sendEvent(receiver, &keyRelease);
     }
 
-signals:
-    void keyPressed(int key, QString value);
-
 private:
-    QString m_name;
 };
 
 }

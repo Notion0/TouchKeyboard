@@ -22,7 +22,7 @@ class NumberKeyboard : public AbstractKeyboard
 {
     Q_OBJECT
 public:
-    NumberKeyboard(QWidget *parent = NULL);
+    NumberKeyboard(QWidget *parent = nullptr);
 
     KeyButton *createButton(QList<KeyButton::Mode> modes);
 
