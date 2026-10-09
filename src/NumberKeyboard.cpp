@@ -72,6 +72,7 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
     };
 
     const QList<Modes> modeListBar4 = {
+            {{Qt::Key_Minus, "-"}},
             {{Qt::Key_Period, "."}},
             {{Qt::Key_0, "0"}},
             {{Qt::Key_Backspace, "", QIcon(s_backspace_icon)}},
