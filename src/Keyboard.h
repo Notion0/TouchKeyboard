@@ -17,6 +17,7 @@ namespace Ui {
 class Keyboard;
 }
 // =======================================
+class QPushButton;   // 标题栏中/英状态标识（指针成员，头文件只需前向声明）
 
 namespace AeaQt {
 
@@ -59,8 +60,10 @@ public:
     ~Keyboard();  // ========== 新增析构函数 ==========
 
 protected:
-    /// @brief 尺寸变化：重排按键
-    void resizeEvent(QResizeEvent *e);
+    /// @brief 尺寸变化：重排按键 + 重算圆角 mask
+    void resizeEvent(QResizeEvent *e) override;
+    /// @brief 收起：丢弃未提交的拼音缓冲与候选（缓冲跨输入框存活，不清会串台）
+    void hideEvent(QHideEvent *e) override;
 
 private slots:
     /// @brief 大小写锁定切换
@@ -73,6 +76,8 @@ private slots:
     void onButtonPressed(const int &code, const QString &text);
     /// @brief 清空拼音缓冲
     void clearBufferText();
+    /// @brief 候选词上屏：焦点控件直接插入，其余控件兜底合成键事件
+    void onCandidateCommitted(const int &code, const QString &text);
 
 private:
     /// @brief 造一个多态按键
@@ -81,11 +86,17 @@ private:
     /// @brief 按容器尺寸重算按键几何
     void resizeButton();
 
+    /// @brief 按 m_isChinese 刷新标题栏中英状态标识（「汉」/「en」大字）与候选区可见性
+    void updateLangIndicator();
+
 private:
     Ui::Keyboard *ui;
     bool m_isChinese;
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
+    /// 标题栏中/英状态标识（flat 透明键，白粗体 20pt）：点击切换中英态，
+    /// 文本与底行中/英键帽同源（都是 m_isChinese 的镜像）
+    QPushButton *m_langStatus;
 
 };
 

@@ -9,16 +9,21 @@
   <file>icons/hideBtn.png</file>
   <file>icons/space.png</file>
  </qresource>
- <!-- 中文拼音三字典（随模板编入=中文输入法是固有能力，不是可选项）：资源全路径
-      与 Keyboard.cpp 的 TOUCHKBD_* 宏默认值逐字一致（:/ChineseLib/pinyin.txt 等），
+ <!-- 中文拼音三字典（随模板编入=中文输入法是固有能力，不是可选项）：alias 把
+      resources/dicts/ 下的实体文件映射成扁平资源路径，与 Keyboard.cpp 的
+      TOUCHKBD_* 宏默认值逐字一致（:/ChineseLib/pinyin.txt 等）。不写 alias 时
+      真实路径会多出 /dicts 一节（:/ChineseLib/dicts/pinyin.txt），代码按扁平
+      路径打开三个字典全部失败且仅 qDebug 提示（发布构建 QT_NO_DEBUG_OUTPUT
+      下静默）——2026-09-29 PUPSIT / 2026-10-09 PressureMonitor_noflow 两次
+      现场反馈「中文输入全废、候选栏只剩原始拼音」同一根因，alias 不可省。
       宿主 include .pri 即得完整中文输入，无需提供任何字典 -->
  <qresource prefix="/ChineseLib">
-  <file>dicts/pinyin.txt</file>
+  <file alias="pinyin.txt">dicts/pinyin.txt</file>
  </qresource>
  <qresource prefix="/ChinesePhraseLib">
-  <file>dicts/pinyin_phrase.txt</file>
+  <file alias="pinyin_phrase.txt">dicts/pinyin_phrase.txt</file>
  </qresource>
  <qresource prefix="/GoogleChineseLib">
-  <file>dicts/rawdict_utf16_65105_freq_sort.txt</file>
+  <file alias="rawdict_utf16_65105_freq_sort.txt">dicts/rawdict_utf16_65105_freq_sort.txt</file>
  </qresource>
 </RCC>

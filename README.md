@@ -41,7 +41,7 @@
 | 提交 | **回车**键（editingFinished + 失焦 + 收起） | **确认**键（同语义；小键盘无回车键必须有） |
 | 清空 | 底行**清空**键（清拼音缓冲 + 清空输入框） | 底行**清空**键（清空输入框） |
 | 收起 | 点击非输入区 / 失焦 / 标题栏关闭钮 | 点击非输入区 / 失焦 / 确认 |
-| 中文 | 中/英切换 + 拼音候选行（需字典，见下） | 无 |
+| 中文 | 中/英切换（**标题栏「汉/en」大字状态标识**点击即切 + 底行中英键）+ 拼音候选行（需字典，见下） | 无 |
 | 位置 | 输入框下方，越界在**宿主窗口矩形内**上翻/钳制 | 同 |
 
 按键统一走 `AbstractKeyboard::onKeyPressed` 的 QKeyEvent 通道发到焦点控件；两个键盘是宿主
@@ -60,6 +60,21 @@
 | `TOUCHKBD_PINYIN_DICT` | `:/ChineseLib/pinyin.txt` | 单字拼音 |
 | `TOUCHKBD_PINYIN_PHRASE_DICT` | `:/ChinesePhraseLib/pinyin_phrase.txt` | 词组（41 万条，去声调+ü→v） |
 | `TOUCHKBD_GOOGLE_DICT` | `:/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt` | 谷歌大字典（词频排序） |
+
+扁平路径由模板 qrc 的 `alias` 保证（`dicts/` 下实体文件映射掉 `/dicts` 一节）——**alias
+不可省**：漏写时真实路径多出 `/dicts`，三个字典 open 全败、候选栏只剩原始拼音，
+且失败提示是 qDebug（发布构建 `QT_NO_DEBUG_OUTPUT` 下静默）。PUPSIT(2026-09-29)与
+PressureMonitor_noflow(2026-10-09)两次现场反馈同一根因；`Keyboard.cpp` 的
+`openDictFile()` 另做扁平/嵌套双路径兜底 + qWarning 总检，不再依赖单一配置正确。
+
+## 中/英状态标识
+
+全键盘标题栏（品牌文本右侧）常驻一个大字状态标识：**中文态「汉」/ 英文态「en」**
+（Microsoft YaHei 20pt 加粗白字，明显大于键帽文字），**点击即切换**；底行中英键
+与它是同一个 `m_isChinese` 的镜像，点任一处另一处同步。英文态字母键直接上屏，
+中文态字母键拼拼音出候选、点候选上屏；离开中文态（或键盘收起）时未提交的拼音
+缓冲与候选一并丢弃，不会串到下一个输入框。
+
 ## 换肤 / 换品牌
 
 改 `src/AbstractKeyboard.h` 一处，两个键盘同时生效：

@@ -33,9 +33,9 @@ const QString SPACE_ICON     = ":/touchkeyboard/icons/space.png";
 const QString CAPLOCK_ICON   = ":/touchkeyboard/icons/caplock.png";
 
 // 中文输入三字典（qrc 路径，随模板 qrc 编入——中文输入是固有能力，非可选项）。
-// 资源路径与模板 resources/TouchKeyboard.qrc 的三个 qresource 前缀一一对应；
-// load* 里的打开失败分支仅作防御保留（资源损坏/自定义路径覆盖失误时报错用），
-// 正常接入不会缺字典。要换自定义字典：.pro 里 -D 覆盖宏，或直接改这里。
+// 资源路径与模板 resources/TouchKeyboard.qrc 的三个 qresource 前缀一一对应
+// （qrc 侧必须写 alias 映射成扁平路径，详见 openDictFile 上方注释）。
+// 要换自定义字典：.pro 里 -D 覆盖宏，或直接改这里。
 #ifndef TOUCHKBD_PINYIN_DICT
 #define TOUCHKBD_PINYIN_DICT       ":/ChineseLib/pinyin.txt"
 #endif
@@ -45,6 +45,26 @@ const QString CAPLOCK_ICON   = ":/touchkeyboard/icons/caplock.png";
 #ifndef TOUCHKBD_GOOGLE_DICT
 #define TOUCHKBD_GOOGLE_DICT       ":/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt"
 #endif
+
+// 字典资源打开：扁平路径（qrc 写了 alias 的形态，模板 qrc 现状）优先，
+// 打不开再回落「prefix/dicts/文件名」的嵌套路径试一次。
+// 缘由：qrc 漏写 alias 时真实路径会多出 /dicts 一节，三个字典 open 全部失败，
+// 而失败提示原是 qDebug（发布构建 QT_NO_DEBUG_OUTPUT 下被整段编掉）——静默
+// 失效表现为「候选栏只剩原始拼音、中文输入全废」。PUPSIT(2026-09-29)与
+// PressureMonitor_noflow(2026-10-09)两次现场反馈同一根因。此处双路径兜底：
+// 宿主 qrc 即使漏 alias 也能加载，不把正确性全押在资源配置上。
+static bool openDictFile(QFile &file, const QString &flatPath)
+{
+    file.setFileName(flatPath);
+    if (file.open(QIODevice::ReadOnly))
+        return true;
+
+    const int slash = flatPath.lastIndexOf(QLatin1Char('/'));
+    if (slash <= 0)
+        return false;
+    file.setFileName(flatPath.left(slash) + QStringLiteral("/dicts") + flatPath.mid(slash));
+    return file.open(QIODevice::ReadOnly);
+}
 
 const double BUTTON_SPACING_RATIO = 0.030;
 const double BUTTON_WIDTH_RATIO   = 0.09;
@@ -89,7 +109,9 @@ const QList<Modes> modeListBar3 = {
 
 const QList<Modes> modeListBar4 = {
     {{Qt::Key_Mode_switch, "",  "?123"}},
-    {{Qt::Key_Context1,    "",  "En"},    {Qt::Key_Context1, "", QStringLiteral("中")}},
+    // 中/英切换键：display 与标题栏状态标识（m_langStatus）同一口径「en/汉」，
+    // 两处是同一个 m_isChinese 的镜像，避免用户看成两个不同功能
+    {{Qt::Key_Context1,    "",  "en"},    {Qt::Key_Context1, "", QStringLiteral("汉")}},
     {{Qt::Key_Space,       " ", ""/*空格*/}},
     {{Qt::Key_Enter,       "",  ""/*换行*/}},
     // 清空折进底行（与 PUPSIT 全键盘 Clear+Enter 同形态；确认不单列——回车即确认，
@@ -113,6 +135,25 @@ Keyboard::Keyboard(QWidget *parent) :
     if (ui->labPY)
         ui->labPY->setText(brandLogoText());
 
+    // 标题栏中/英状态标识（大字白字，点击切换）：紧跟品牌文本、候选区左侧。
+    // 放候选区内侧会在英文态被 candidateContainer 一起收起（setVisible(false)）——
+    // 那正是用户最需要看见"当前是英文"的时候，故固定常驻标题栏。与底行中/英
+    // 键帽同源：两处都是 m_isChinese 的镜像，点击任一处都走 switchEnOrCh。
+    // 白字与 labPY/candidateContainer 同款走 QSS color（本模板白-on-青文本的
+    // 统一做法；祖先带 QSS 时 palette 路线表现不稳，不混用）；flat 不画边框/底色
+    m_langStatus = new QPushButton(this);
+    m_langStatus->setFlat(true);
+    m_langStatus->setFocusPolicy(Qt::NoFocus);
+    m_langStatus->setCursor(Qt::PointingHandCursor);
+    m_langStatus->setFont(QFont(QStringLiteral("Microsoft YaHei"), 20, QFont::Bold));
+    m_langStatus->setMinimumSize(60, 36);
+    m_langStatus->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
+    m_langStatus->setStyleSheet(QStringLiteral("color: rgb(255, 255, 255);"));
+    if (ui->horizontalLayout)
+        ui->horizontalLayout->insertWidget(1, m_langStatus);
+    connect(m_langStatus, &QPushButton::clicked, this, &Keyboard::switchEnOrCh);
+    updateLangIndicator();
+
     // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层显成方角——
     // 透明背景 + 圆角 mask 从窗口层裁掉（半径与 #frame 的 border-radius 一致）
     setMask(roundedWindowMask(size(), kCornerRadius));
@@ -130,7 +171,7 @@ Keyboard::Keyboard(QWidget *parent) :
 
     // 连接信号
     connect(m_chineseWidget, &AeaQt::ChineseWidget::pressedChanged,
-            this, &Keyboard::onKeyPressed);
+            this, &Keyboard::onCandidateCommitted);
     connect(m_chineseWidget, &AeaQt::ChineseWidget::pressedChanged,
             this, &Keyboard::clearBufferText);
 
@@ -213,6 +254,17 @@ void Keyboard::resizeEvent(QResizeEvent *e)
         setMask(m);
 }
 
+void Keyboard::hideEvent(QHideEvent *e)
+{
+    // 收起即丢弃未提交拼音：拼音缓冲挂在 Keyboard 实例上（跨输入框存活），
+    // 不清理时切到下一个输入框，候选栏还留着上一个输入框的拼音结果、
+    // buffer 也会接着旧串往下拼（中文态输入框切换的串台）
+    clearBufferText();
+    if (m_chineseWidget)
+        m_chineseWidget->clear();
+    AbstractKeyboard::hideEvent(e);
+}
+
 void Keyboard::switchCapsLock()
 {
     QList<KeyButton *> buttons = findChildren<KeyButton *>();
@@ -230,14 +282,52 @@ void Keyboard::switchSpecialChar()
 void Keyboard::switchEnOrCh()
 {
     m_isChinese = !m_isChinese;
-    ui->candidateContainer->setVisible(m_isChinese);   // 显示或隐藏容器
 
-    QList<KeyButton *> buttons = findChildren<KeyButton *>();
-    foreach(KeyButton *button, buttons) {
-        if (button->mode().key == Qt::Key_Context1) {
-            button->switching();
-        }
+    if (! m_isChinese) {
+        // 离开中文态：丢弃未提交的拼音缓冲与候选残留——否则切回中文时候选栏
+        // 还挂着上一串拼音的结果， buffer 也会接着旧串往下拼
+        clearBufferText();
+        m_chineseWidget->clear();
     }
+
+    updateLangIndicator();
+
+    // 底行中/英键帽文本跟随（en/汉 两态循环，每切一次翻一态，与 m_isChinese 同步；
+    // 初始态与 m_modes.first()「en」一致，故构造期只调 updateLangIndicator 不循环）
+    for (KeyButton *button : findChildren<KeyButton *>()) {
+        if (button->mode().key == Qt::Key_Context1)
+            button->switching();
+    }
+}
+
+void Keyboard::updateLangIndicator()
+{
+    // 候选区仅中文态常驻：英文态收起（容器高度随之归 0，不占标题栏空间）
+    ui->candidateContainer->setVisible(m_isChinese);
+
+    // 标题栏状态标识：中文「汉」/英文「en」——20pt 加粗白字，明显大于键帽文字，
+    // 颜色与标题栏品牌文本一致（白）。文案说清"现在是什么态 + 点一下去哪里"
+    if (m_langStatus) {
+        m_langStatus->setText(m_isChinese ? QStringLiteral("汉") : QStringLiteral("en"));
+        m_langStatus->setToolTip(m_isChinese
+            ? QStringLiteral("中文输入：字母键拼拼音出候选，点击切换为英文")
+            : QStringLiteral("英文输入：字母键直接上屏，点击切换为中文"));
+    }
+}
+
+void Keyboard::onCandidateCommitted(const int &code, const QString &text)
+{
+    // 候选上屏：焦点控件直接插入优先，其余控件兜底合成键事件。取此路径是与
+    // 旧版生产键盘（frmInput::insertValue，Qt5 线长期在役）拉齐——原实现把候选
+    // 也走 onKeyPressed(-1, text) 的合成事件，而 -1 不是合法 Qt::Key，焦点控件
+    // 受理与否没有保证；QLineEdit/QTextEdit 直接插入则与字母键落屏同一套插入
+    // 逻辑（光标位置/选区替换/验证器语义一致）
+    if (auto *edit = qobject_cast<QLineEdit*>(QApplication::focusWidget()))
+        edit->insert(text);
+    else if (auto *te = qobject_cast<QTextEdit*>(QApplication::focusWidget()))
+        te->insertPlainText(text);
+    else
+        onKeyPressed(code, text);
 }
 
 void Keyboard::onButtonPressed(const int &code, const QString &text)
@@ -280,7 +370,9 @@ void Keyboard::onButtonPressed(const int &code, const QString &text)
     if (code == Qt::Key_Backspace)
         m_bufferText.chop(1);
     else
-        m_bufferText.append(text);
+        // 拼音一律小写：键帽 text 随大小写锁定给大写，字典全小写——不转小写
+        // 时开着大写锁定拼拼音会一个候选都不出（数字/符号不受 toLower 影响）
+        m_bufferText.append(text.toLower());
     m_chineseWidget->setText(m_bufferText);
 }
 
@@ -316,6 +408,9 @@ void Keyboard::resizeButton()
             connect(button, SIGNAL(pressed()), this, SLOT(switchSpecialChar()), Qt::UniqueConnection);
             break;
         case Qt::Key_Context1:
+            // 切换键长按连发会反复翻转中英态（标题栏状态标识跟着抖），关掉连发；
+            // 字母/退格等输入键的连发是刻意保留的
+            button->setAutoRepeat(false);
             connect(button, SIGNAL(pressed()), this, SLOT(switchEnOrCh()), Qt::UniqueConnection);
             break;
         case Qt::Key_Enter:
@@ -342,6 +437,11 @@ ChineseWidget::ChineseWidget(QWidget *parent) :
     loadChinesePhraseLib();
     loadGoogleChineseLib();
 
+    // 空库总检：三个字典全部没 load 上来时候选栏只剩原始拼音（中文输入静默
+    // 失效）。qWarning 不受 QT_NO_DEBUG_OUTPUT 影响，发布构建也能在日志里看见
+    if (m_data.isEmpty())
+        qWarning() << "拼音字典全部为空：中文候选输入不可用（检查 qrc 资源路径/alias）";
+
     setFocusPolicy(Qt::NoFocus);
     /* 设置为列表显示模式 */
     setViewMode(QListView::ListMode);
@@ -363,10 +463,12 @@ ChineseWidget::ChineseWidget(QWidget *parent) :
     QScroller::grabGesture(this, QScroller::LeftMouseButtonGesture);
 #endif
 
-    /* 设置样式 */
+    /* 设置样式。条目高度 36px：候选区（标题栏内 candidateContainer）最高 40px，
+     * 原 50px 条目会被底边裁掉一截（悬停/选中蓝底缺底边、文字贴顶）——36px
+     * 整条落进 40px 视口，18pt 文字仍有充裕留白 */
     setStyleSheet("                                                                           \
                   QListWidget { outline: none; border:1px solid #00000000; color: black; }    \
-                  QListWidget::Item { width: 50px; height: 50px; }                            \
+                  QListWidget::Item { width: 50px; height: 36px; }                            \
                   QListWidget::Item:hover { background: #4395ff; color: white; }              \
                   QListWidget::item:selected { background: #4395ff; color: black; }           \
                   QListWidget::item:selected:!active { background: #00000000; color: black; } \
@@ -380,6 +482,11 @@ void ChineseWidget::setText(const QString &text)
     /* clear() 即删除全部旧候选项（原 takeItem(i)+delete 循环每次取走后索引
      * 前移会隔项漏删，且删除本就由 clear() 统一完成——整段可直接去掉） */
     clear();
+
+    /* 空缓冲直接返回：onItemClicked 提交候选后调 setText("") 只为清空，
+     * 原写法会补一条空文本条目占在候选行里（提交后候选区留一条空白） */
+    if (text.isEmpty())
+        return;
 
     addOneItem(text);
 
@@ -430,15 +537,16 @@ void ChineseWidget::addOneItem(const QString &text)
     else
         width += text.count()*font.pointSize()*2/3;
 
-    item->setSizeHint(QSize(width, 50));
+    /* 条目高度与 QSS 的 Item height 一致（36px，落进 40px 候选区视口） */
+    item->setSizeHint(QSize(width, 36));
     addItem(item);
 }
 
 void ChineseWidget::loadChineseLib()
 {
-    QFile pinyin(TOUCHKBD_PINYIN_DICT);
-    if (! pinyin.open(QIODevice::ReadOnly)) {
-        qDebug() << "Open pinyin file failed!";
+    QFile pinyin;
+    if (! openDictFile(pinyin, QStringLiteral(TOUCHKBD_PINYIN_DICT))) {
+        qWarning() << "拼音单字字典打开失败（中文候选不可用）：" << TOUCHKBD_PINYIN_DICT;
         return;
     }
 
@@ -462,9 +570,9 @@ void ChineseWidget::loadChineseLib()
 void ChineseWidget::loadChinesePhraseLib()
 {
     /* 加载词组字库内容 */
-    QFile pinyin(TOUCHKBD_PINYIN_PHRASE_DICT);
-    if (! pinyin.open(QIODevice::ReadOnly)) {
-        qDebug() << "Open pinyin file failed!";
+    QFile pinyin;
+    if (! openDictFile(pinyin, QStringLiteral(TOUCHKBD_PINYIN_PHRASE_DICT))) {
+        qWarning() << "拼音词组字典打开失败（词组候选不可用）：" << TOUCHKBD_PINYIN_PHRASE_DICT;
         return;
     }
 
@@ -512,9 +620,9 @@ void ChineseWidget::loadChinesePhraseLib()
 
 void ChineseWidget::loadGoogleChineseLib()
 {
-    QFile file(TOUCHKBD_GOOGLE_DICT);
-    if (! file.open(QIODevice::ReadOnly)) {
-        qDebug() << "Open pinyin file failed!" << file.fileName();
+    QFile file;
+    if (! openDictFile(file, QStringLiteral(TOUCHKBD_GOOGLE_DICT))) {
+        qWarning() << "谷歌字典打开失败（大字表候选不可用）：" << TOUCHKBD_GOOGLE_DICT;
         return;
     }
 
