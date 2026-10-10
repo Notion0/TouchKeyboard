@@ -298,20 +298,24 @@ void Keyboard::switchEnOrCh()
     }
 
     updateLangState();
-
-    // 中/英键帽文本跟随（en/汉 两态循环，每切一次翻一态，与 m_isChinese 同步；
-    // 初始态与 m_modes.first()「en」一致，故构造期不循环）。该键帽即中英态状态
-    // 标识（大字 36px，见构造期 objectName/langSwitchKey），点击后文本即时翻转
-    for (KeyButton *button : findChildren<KeyButton *>()) {
-        if (button->mode().key == Qt::Key_Context1)
-            button->switching();
-    }
+    // 中/英键帽文本（汉/en、en/汉 双态组合）已由 updateLangState 按 m_isChinese
+    // 统一设置——状态显示与候选区可见性同一出处，不在此重复驱动
 }
 
 void Keyboard::updateLangState()
 {
     // 候选区仅中文态常驻：英文态收起（容器高度随之归 0，不占标题栏空间）
     ui->candidateContainer->setVisible(m_isChinese);
+
+    // 中/英切换键（空格左邻）键帽文本同时表达"当前态/目标态"：中文态「汉/en」、
+    // 英文态「en/汉」——操作员不看教程也知道当前是什么、点了会变成什么（现场要求）。
+    // 文本完全由 m_isChinese 驱动：不走 KeyButton::switching 的 modes 循环，
+    // 循环态只有单个字、表达不了组合语义；点击行为不变（仍发 Context1 键码）
+    for (KeyButton *button : findChildren<KeyButton *>()) {
+        if (button->mode().key == Qt::Key_Context1)
+            button->setText(m_isChinese ? QStringLiteral("汉/en")
+                                        : QStringLiteral("en/汉"));
+    }
 }
 
 void Keyboard::onCandidateCommitted(const int &code, const QString &text)
