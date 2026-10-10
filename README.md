@@ -69,18 +69,19 @@ PressureMonitor_noflow(2026-10-09)两次现场反馈同一根因；`Keyboard.cpp
 
 ## 中/英状态标识
 
-全键盘**空格左侧的那个键位**就是中/英状态标识：键帽常显 **中文态「汉」/ 英文态「en」**
-（36px 加粗，普通键帽 26px，明显更大），**点击即切换**。该键本来就是中/英切换键——
+全键盘**空格左侧的那个键位**就是中/英状态标识：键帽常显 **中文态「汉/en」/ 英文态「en/汉」**
+（当前态在前、目标态在后，30px 加粗，普通键帽 26px，明显更大），**点击即切换**。该键本来就是中/英切换键——
 状态显示与切换功能合并在同一键上，不占额外键位也不丢功能；候选区只在中文态可见
 （英文态收起，高度归 0）。英文态字母键直接上屏，中文态字母键拼拼音出候选、点候选
 上屏；离开中文态（或键盘收起）时未提交的拼音缓冲与候选一并丢弃，不会串到下一个
 输入框。
 
 实现要点（`Keyboard.cpp`）：构造期给该键设 `objectName=langSwitchKey` 并追加
-`AeaQt--KeyButton#langSwitchKey { font-size: 36px; font-weight: bold; }`——ID 选择器
+`AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }`——ID 选择器
 优先级高于 KeyButton 默认键帽 QSS（`DEFAULT_STYLE_SHEET` 的 26px），故只有这一个键
-变大字（不能用 `setFont`：QSS 设了 font-size 会覆盖控件字体）；文本翻转复用
-`KeyButton::switching()` 的 display 两态循环（`en`/`汉`），由 `switchEnOrCh()` 驱动。
+变大字（不能用 `setFont`：QSS 设了 font-size 会覆盖控件字体）；键帽文本由
+`m_isChinese` 驱动、收在 `updateLangState()` 单一出处（不走 modes 循环——单字循环态
+表达不了「汉/en」组合语义）；键宽从空格匀 4 份（stretch 14）容纳五字符组合不截断。
 另注意：切符号页（`?123`）不会动这个键（`switchSpecialChar()` 显式排除），否则键帽
 被打回英文态而 `m_isChinese` 仍是中文，状态显示与实际中英态相反。
 

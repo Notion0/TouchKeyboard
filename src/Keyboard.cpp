@@ -193,24 +193,26 @@ Keyboard::Keyboard(QWidget *parent) :
     if (row4Layout) {
         for (int i = 0; i < modeListBar4.count(); ++i) {
             KeyButton *button = createButton(modeListBar4.at(i));
-            // 中/英切换键（空格左邻）兼作中英态状态标识：键帽「汉」/「en」用 36px
-            // 加粗大字，明显大于普通键帽的 26px。现场要求把状态显示从标题栏挪到
-            // 这个键位——它是全键盘上唯一「与中文相关且常驻可见」的键，且本来就在
-            // 空格左边，合并后功能不丢（该键此前只有 en/汉 切换一个功能）。
+            // 中/英切换键（空格左邻）兼作中英态状态标识：键帽「汉/en」「en/汉」
+            // 用 30px 加粗大字，明显大于普通键帽的 26px。现场要求把状态显示从
+            // 标题栏挪到这个键位——它是全键盘上唯一「与中文相关且常驻可见」的键，
+            // 且本来就在空格左边，合并后功能不丢（该键此前只有 en/汉 切换一个功能）。
             // 实现途径：objectName + ID 选择器追加 QSS。不能用 setFont——QSS 的
             // font-size 会覆盖控件字体（每次 polish 重算），必须走样式表；ID 选择器
             // 优先级高于 KeyButton 构造里的类选择器 DEFAULT_STYLE_SHEET，字号必然
-            // 生效，不依赖"后写的规则胜出"这条弱保证。键位实测约 80×65px（扣 QSS
-            // margin 5px 后约 70×55），36px 的单字/两字母与行高都放得下，不截断
+            // 生效，不依赖"后写的规则胜出"这条弱保证。
+            // 字号与键宽经现场反馈校正：36px 单字放得下，但"汉/en"五字符组合按
+            // 36px 算约 86px 超出键位（原 10 份 stretch 可用宽约 70px）被截断——
+            // 现 30px（组合约 67px）+ stretch 10→14 份（可用宽约 103px），双保险
             if (button->mode().key == Qt::Key_Context1) {
                 button->setObjectName(QStringLiteral("langSwitchKey"));
                 button->setStyleSheet(button->styleSheet() + QStringLiteral(
-                    "AeaQt--KeyButton#langSwitchKey { font-size: 36px; font-weight: bold; }"));
+                    "AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }"));
             }
             int stretch = 0;
             if (i == 0) stretch = 12;
-            else if (i == 1) stretch = 10;
-            else if (i == 2) stretch = 56;
+            else if (i == 1) stretch = 14;   // 中英键加宽（从空格匀 4 份）：容纳"汉/en"组合文本
+            else if (i == 2) stretch = 52;   // 空格：匀出 4 份给中英键后仍占一半以上
             else stretch = 22;   // 回车与清空等宽
             row4Layout->addWidget(button, stretch);
         }
