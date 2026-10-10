@@ -109,8 +109,8 @@ const QList<Modes> modeListBar3 = {
 
 const QList<Modes> modeListBar4 = {
     {{Qt::Key_Mode_switch, "",  "?123"}},
-    // 中/英切换键：display 与标题栏状态标识（m_langStatus）同一口径「en/汉」，
-    // 两处是同一个 m_isChinese 的镜像，避免用户看成两个不同功能
+    // 中/英切换键（空格左邻，兼作中英态状态标识）：display 两态循环「en」/「汉」，
+    // 大字键帽样式见构造期 objectName/langSwitchKey；两态都由 m_isChinese 驱动
     {{Qt::Key_Context1,    "",  "en"},    {Qt::Key_Context1, "", QStringLiteral("汉")}},
     {{Qt::Key_Space,       " ", ""/*空格*/}},
     {{Qt::Key_Enter,       "",  ""/*换行*/}},
@@ -134,25 +134,6 @@ Keyboard::Keyboard(QWidget *parent) :
         .arg(brandPanelColor().name()));
     if (ui->labPY)
         ui->labPY->setText(brandLogoText());
-
-    // 标题栏中/英状态标识（大字白字，点击切换）：紧跟品牌文本、候选区左侧。
-    // 放候选区内侧会在英文态被 candidateContainer 一起收起（setVisible(false)）——
-    // 那正是用户最需要看见"当前是英文"的时候，故固定常驻标题栏。与底行中/英
-    // 键帽同源：两处都是 m_isChinese 的镜像，点击任一处都走 switchEnOrCh。
-    // 白字与 labPY/candidateContainer 同款走 QSS color（本模板白-on-青文本的
-    // 统一做法；祖先带 QSS 时 palette 路线表现不稳，不混用）；flat 不画边框/底色
-    m_langStatus = new QPushButton(this);
-    m_langStatus->setFlat(true);
-    m_langStatus->setFocusPolicy(Qt::NoFocus);
-    m_langStatus->setCursor(Qt::PointingHandCursor);
-    m_langStatus->setFont(QFont(QStringLiteral("Microsoft YaHei"), 20, QFont::Bold));
-    m_langStatus->setMinimumSize(60, 36);
-    m_langStatus->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
-    m_langStatus->setStyleSheet(QStringLiteral("color: rgb(255, 255, 255);"));
-    if (ui->horizontalLayout)
-        ui->horizontalLayout->insertWidget(1, m_langStatus);
-    connect(m_langStatus, &QPushButton::clicked, this, &Keyboard::switchEnOrCh);
-    updateLangIndicator();
 
     // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层显成方角——
     // 透明背景 + 圆角 mask 从窗口层裁掉（半径与 #frame 的 border-radius 一致）
@@ -212,6 +193,20 @@ Keyboard::Keyboard(QWidget *parent) :
     if (row4Layout) {
         for (int i = 0; i < modeListBar4.count(); ++i) {
             KeyButton *button = createButton(modeListBar4.at(i));
+            // 中/英切换键（空格左邻）兼作中英态状态标识：键帽「汉」/「en」用 36px
+            // 加粗大字，明显大于普通键帽的 26px。现场要求把状态显示从标题栏挪到
+            // 这个键位——它是全键盘上唯一「与中文相关且常驻可见」的键，且本来就在
+            // 空格左边，合并后功能不丢（该键此前只有 en/汉 切换一个功能）。
+            // 实现途径：objectName + ID 选择器追加 QSS。不能用 setFont——QSS 的
+            // font-size 会覆盖控件字体（每次 polish 重算），必须走样式表；ID 选择器
+            // 优先级高于 KeyButton 构造里的类选择器 DEFAULT_STYLE_SHEET，字号必然
+            // 生效，不依赖"后写的规则胜出"这条弱保证。键位实测约 80×65px（扣 QSS
+            // margin 5px 后约 70×55），36px 的单字/两字母与行高都放得下，不截断
+            if (button->mode().key == Qt::Key_Context1) {
+                button->setObjectName(QStringLiteral("langSwitchKey"));
+                button->setStyleSheet(button->styleSheet() + QStringLiteral(
+                    "AeaQt--KeyButton#langSwitchKey { font-size: 36px; font-weight: bold; }"));
+            }
             int stretch = 0;
             if (i == 0) stretch = 12;
             else if (i == 1) stretch = 10;
@@ -236,6 +231,10 @@ Keyboard::Keyboard(QWidget *parent) :
 
     // 调用 resizeButton 设置图标和特殊连接
     resizeButton();
+
+    // 初始中英态为英文（m_isChinese=false）：候选区收起、中英键帽停在
+    // m_modes.first() 的「en」，两处一致，故只需刷一次候选区可见性
+    updateLangState();
 }
 
 // ========== 新增析构函数，释放 UI 对象 ==========
@@ -275,8 +274,16 @@ void Keyboard::switchCapsLock()
 void Keyboard::switchSpecialChar()
 {
     QList<KeyButton *> buttons = findChildren<KeyButton *>();
-    foreach(KeyButton *button, buttons)
+    foreach(KeyButton *button, buttons) {
+        // 中/英切换键必须排除：它的两个形态 value 都是空串，KeyButton::find() 一律
+        // 归入 SpecialChar 类型，于是 KeyButton::switchSpecialChar 会把 m_mode 打回
+        // m_preMode——切一次符号页，键帽从「汉」翻回「en」而 m_isChinese 仍为 true
+        // （状态显示与实际中英态相反）；再点一次切换键则因 findNext 从「en」接着
+        // 翻成「汉」，彻底颠倒。该键现在是状态标识，错一次用户就看错状态，故在此挡住
+        if (button->mode().key == Qt::Key_Context1)
+            continue;
         button->switchSpecialChar();
+    }
 }
 
 void Keyboard::switchEnOrCh()
@@ -290,29 +297,21 @@ void Keyboard::switchEnOrCh()
         m_chineseWidget->clear();
     }
 
-    updateLangIndicator();
+    updateLangState();
 
-    // 底行中/英键帽文本跟随（en/汉 两态循环，每切一次翻一态，与 m_isChinese 同步；
-    // 初始态与 m_modes.first()「en」一致，故构造期只调 updateLangIndicator 不循环）
+    // 中/英键帽文本跟随（en/汉 两态循环，每切一次翻一态，与 m_isChinese 同步；
+    // 初始态与 m_modes.first()「en」一致，故构造期不循环）。该键帽即中英态状态
+    // 标识（大字 36px，见构造期 objectName/langSwitchKey），点击后文本即时翻转
     for (KeyButton *button : findChildren<KeyButton *>()) {
         if (button->mode().key == Qt::Key_Context1)
             button->switching();
     }
 }
 
-void Keyboard::updateLangIndicator()
+void Keyboard::updateLangState()
 {
     // 候选区仅中文态常驻：英文态收起（容器高度随之归 0，不占标题栏空间）
     ui->candidateContainer->setVisible(m_isChinese);
-
-    // 标题栏状态标识：中文「汉」/英文「en」——20pt 加粗白字，明显大于键帽文字，
-    // 颜色与标题栏品牌文本一致（白）。文案说清"现在是什么态 + 点一下去哪里"
-    if (m_langStatus) {
-        m_langStatus->setText(m_isChinese ? QStringLiteral("汉") : QStringLiteral("en"));
-        m_langStatus->setToolTip(m_isChinese
-            ? QStringLiteral("中文输入：字母键拼拼音出候选，点击切换为英文")
-            : QStringLiteral("英文输入：字母键直接上屏，点击切换为中文"));
-    }
 }
 
 void Keyboard::onCandidateCommitted(const int &code, const QString &text)
@@ -408,7 +407,7 @@ void Keyboard::resizeButton()
             connect(button, SIGNAL(pressed()), this, SLOT(switchSpecialChar()), Qt::UniqueConnection);
             break;
         case Qt::Key_Context1:
-            // 切换键长按连发会反复翻转中英态（标题栏状态标识跟着抖），关掉连发；
+            // 切换键长按连发会反复翻转中英态（键帽「汉/en」状态标识跟着抖），关掉连发；
             // 字母/退格等输入键的连发是刻意保留的
             button->setAutoRepeat(false);
             connect(button, SIGNAL(pressed()), this, SLOT(switchEnOrCh()), Qt::UniqueConnection);

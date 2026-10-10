@@ -17,7 +17,6 @@ namespace Ui {
 class Keyboard;
 }
 // =======================================
-class QPushButton;   // 标题栏中/英状态标识（指针成员，头文件只需前向声明）
 
 namespace AeaQt {
 
@@ -86,18 +85,14 @@ private:
     /// @brief 按容器尺寸重算按键几何
     void resizeButton();
 
-    /// @brief 按 m_isChinese 刷新标题栏中英状态标识（「汉」/「en」大字）与候选区可见性
-    void updateLangIndicator();
+    /// @brief 按 m_isChinese 刷新候选区可见性（中文态常驻，英文态收起让位标题栏）
+    void updateLangState();
 
 private:
     Ui::Keyboard *ui;
     bool m_isChinese;
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
-    /// 标题栏中/英状态标识（flat 透明键，白粗体 20pt）：点击切换中英态，
-    /// 文本与底行中/英键帽同源（都是 m_isChinese 的镜像）
-    QPushButton *m_langStatus;
-
 };
 
 }
