@@ -58,6 +58,12 @@ public:
     Keyboard(QWidget *parent = nullptr);
     ~Keyboard();  // ========== 新增析构函数 ==========
 
+    /// @brief 英文-only 模式：为 true 时强制停靠英文态，且中/英切换键置灰失效。
+    ///        由 InputManager 按输入框的 asciiOnly 动态属性调用——密码等仅允许
+    ///        ASCII 的字段若不禁用中文态，触摸键盘的拼音候选能点选却过不了字段的
+    ///        validator，表现为"中文能显示但不能选中写入"
+    void setEnglishOnly(bool enabled);
+
 protected:
     /// @brief 尺寸变化：重排按键 + 重算圆角 mask
     void resizeEvent(QResizeEvent *e) override;
@@ -91,6 +97,7 @@ private:
 private:
     Ui::Keyboard *ui;
     bool m_isChinese;
+    bool m_englishOnly = false;   // 英文-only：中/英切换失效（密码等 ASCII-only 字段）
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
 };

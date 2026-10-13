@@ -102,6 +102,12 @@ void InputManager::showKeyboard(QWidget* now)
         ? static_cast<AeaQt::AbstractKeyboard*>(numberKeyboard)
         : static_cast<AeaQt::AbstractKeyboard*>(keyboard);
 
+    // 英文-only 字段（密码等仅允许 ASCII）：全键盘停靠英文态，且中/英切换键置灰。
+    // 不禁的话触摸键盘切中文后，拼音候选能点选却过不了字段的 validator——
+    // 表现为"中文能显示但不能选中写入"。数字小键盘本就无中文态，无需处理
+    if (target == keyboard)
+        keyboard->setEnglishOnly(holder->property("asciiOnly").toBool());
+
     // 如果已经是当前输入框且目标键盘已显示，则不重复处理
     if (target->isVisible() && currentInput == now)
         return;

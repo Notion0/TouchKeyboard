@@ -122,7 +122,8 @@ const QList<Modes> modeListBar4 = {
 Keyboard::Keyboard(QWidget *parent) :
     AbstractKeyboard(parent),
     ui(new Ui::Keyboard),
-    m_isChinese(false)
+    m_isChinese(false),
+    m_englishOnly(false)
 {
     ui->setupUi(this);
 
@@ -288,8 +289,27 @@ void Keyboard::switchSpecialChar()
     }
 }
 
+void Keyboard::setEnglishOnly(bool enabled)
+{
+    if (m_englishOnly == enabled)
+        return;
+
+    // 先切回英文再上锁：顺序反了会被下面 switchEnOrCh 的英文-only 守卫挡回来，
+    // 键盘将停在中文态（候选区开着，用户照样能点候选却上不了屏）
+    if (enabled && m_isChinese)
+        switchEnOrCh();
+
+    m_englishOnly = enabled;
+    updateLangState();
+}
+
 void Keyboard::switchEnOrCh()
 {
+    // 英文-only 字段（密码类）不接受切到中文：候选能点选却过不了字段 validator，
+    // 会表现为"中文能显示但不能选中写入"。直接吞掉这次切换
+    if (m_englishOnly)
+        return;
+
     m_isChinese = !m_isChinese;
 
     if (! m_isChinese) {
@@ -314,9 +334,12 @@ void Keyboard::updateLangState()
     // 文本完全由 m_isChinese 驱动：不走 KeyButton::switching 的 modes 循环，
     // 循环态只有单个字、表达不了组合语义；点击行为不变（仍发 Context1 键码）
     for (KeyButton *button : findChildren<KeyButton *>()) {
-        if (button->mode().key == Qt::Key_Context1)
+        if (button->mode().key == Qt::Key_Context1) {
             button->setText(m_isChinese ? QStringLiteral("汉/en")
                                         : QStringLiteral("en/汉"));
+            // 英文-only 时置灰切换键：看得见但点不动，比"能点却毫无反应"明确
+            button->setEnabled(!m_englishOnly);
+        }
     }
 }
 
