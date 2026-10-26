@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QLineEdit>
+#include <QAbstractSpinBox>
 #include <QTextEdit>
 
 #if (QT_VERSION >= QT_VERSION_CHECK(5,0,0))
@@ -285,7 +286,25 @@ void Keyboard::switchSpecialChar()
         // 翻成「汉」，彻底颠倒。该键现在是状态标识，错一次用户就看错状态，故在此挡住
         if (button->mode().key == Qt::Key_Context1)
             continue;
+        // 模式切换键（左下角）自身也排除：它只有一个 mode 且类型被判为 SpecialChar，
+        // KeyButton::switchSpecialChar 对它执行 m_mode = m_preMode 等于不变，键帽
+        // 永远停在「?123」——切进符号页后用户看不出按它能回去。其键帽由本函数
+        // 末尾按 m_isSpecialChar 统一设置（与中英键同一思路：键帽表达目标态）
+        if (button->mode().key == Qt::Key_Mode_switch)
+            continue;
         button->switchSpecialChar();
+    }
+
+    m_isSpecialChar = !m_isSpecialChar;
+
+    // 左下角模式切换键键帽表达"当前页/按下去去哪"：符号页显示「abc」（按它回字母页），
+    // 字母页显示「?123」（按它去符号页）。现场反馈：原来切过去后还是「?123」，
+    // 操作员不知道这个键此时是"返回字母"用的
+    for (KeyButton *button : buttons) {
+        if (button->mode().key == Qt::Key_Mode_switch) {
+            button->setText(m_isSpecialChar ? QStringLiteral("abc")
+                                            : QStringLiteral("?123"));
+        }
     }
 }
 
@@ -374,13 +393,24 @@ void Keyboard::onButtonPressed(const int &code, const QString &text)
         this->hide();
         return;
     }
-    // 清空：清拼音缓冲 + 清空焦点输入框（与数字小键盘清空键同语义）
+    // 清空：清拼音缓冲 + 数值框全选数值段 / 其余输入框清空（与数字小键盘同语义）
     if (code == Qt::Key_Clear) {
         clearBufferText();
-        if (auto *edit = qobject_cast<QLineEdit*>(QApplication::focusWidget()))
+        QWidget *focus = QApplication::focusWidget();
+        // 焦点实际落在 spinbox 的内嵌行编辑（qt_spinbox_lineedit）上，必须沿父链补查
+        // 一层；直接 cast focusWidget 永远不中，会落到下面的 QLineEdit 分支走 clear()，
+        // 数值随即被 interpret 还原（2026-10-19 现场报："按清空没有全选"）
+        auto *spin = qobject_cast<QAbstractSpinBox*>(focus);
+        if (!spin && qobject_cast<QLineEdit*>(focus))
+            spin = qobject_cast<QAbstractSpinBox*>(focus->parentWidget());
+        if (spin) {
+            // 全选数值段（suffix 不入选）：下次键入直接覆盖，单位不丢、无空白期
+            spin->selectAll();
+        } else if (auto *edit = qobject_cast<QLineEdit*>(focus)) {
             edit->clear();
-        else if (auto *te = qobject_cast<QTextEdit*>(QApplication::focusWidget()))
+        } else if (auto *te = qobject_cast<QTextEdit*>(focus)) {
             te->clear();
+        }
         return;
     }
     if (! m_isChinese) {

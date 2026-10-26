@@ -9,6 +9,7 @@
 #include "KeyButton.h"
 #include <QLabel>
 #include <QLineEdit>
+#include <QAbstractSpinBox>
 #include <QVBoxLayout>
 
 using namespace AeaQt;
@@ -137,10 +138,22 @@ void NumberKeyboard::resizeEvent(QResizeEvent *e)
 
 void NumberKeyboard::onButtonPressed(const int &code, const QString &text)
 {
-    // 清空：直接清空焦点输入框（对标 PUPSIT NumericKeypadPanel::clearTarget）
+    // 清空：数值框（spin box）走「全选数值段」，其余输入框直接清空
     if (code == Qt::Key_Clear) {
-        if (auto *edit = qobject_cast<QLineEdit*>(QApplication::focusWidget()))
+        QWidget *focus = QApplication::focusWidget();
+        // 焦点实际落在 spinbox 的内嵌行编辑（qt_spinbox_lineedit）上，必须沿父链补查
+        // 一层；直接 cast focusWidget 永远不中，会落到下面的 QLineEdit 分支走 clear()，
+        // 数值随即被 interpret 还原（2026-10-19 现场报："按清空没有全选"）
+        auto *spin = qobject_cast<QAbstractSpinBox*>(focus);
+        if (!spin && qobject_cast<QLineEdit*>(focus))
+            spin = qobject_cast<QAbstractSpinBox*>(focus->parentWidget());
+        if (spin) {
+            // 全选数值段（suffix 不入选）：下次键入直接覆盖，单位不丢、无空白期
+            //（clear() 会把 setSuffix 的单位一起清掉、失焦才恢复）
+            spin->selectAll();
+        } else if (auto *edit = qobject_cast<QLineEdit*>(focus)) {
             edit->clear();
+        }
         return;
     }
     // 确认：主动失焦——一是触发 editingFinished 让"确定后生效"字段走提交路径，

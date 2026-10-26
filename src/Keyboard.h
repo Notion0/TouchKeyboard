@@ -98,6 +98,7 @@ private:
     Ui::Keyboard *ui;
     bool m_isChinese;
     bool m_englishOnly = false;   // 英文-only：中/英切换失效（密码等 ASCII-only 字段）
+    bool m_isSpecialChar = false; // 当前是否符号/数字页（驱动左下角切换键键帽文案）
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
 };
