@@ -18,6 +18,7 @@
 #include <QRegularExpression>
 #include <QDebug>
 #include "ui_Keyboard.h"
+#include "TouchKbdDict.h"
 
 
 using namespace AeaQt;
@@ -33,39 +34,8 @@ const QString ENTER_ICON     = ":/touchkeyboard/icons/enter.png";
 const QString SPACE_ICON     = ":/touchkeyboard/icons/space.png";
 const QString CAPLOCK_ICON   = ":/touchkeyboard/icons/caplock.png";
 
-// 中文输入三字典（qrc 路径，随模板 qrc 编入——中文输入是固有能力，非可选项）。
-// 资源路径与模板 resources/TouchKeyboard.qrc 的三个 qresource 前缀一一对应
-// （qrc 侧必须写 alias 映射成扁平路径，详见 openDictFile 上方注释）。
-// 要换自定义字典：.pro 里 -D 覆盖宏，或直接改这里。
-#ifndef TOUCHKBD_PINYIN_DICT
-#define TOUCHKBD_PINYIN_DICT       ":/ChineseLib/pinyin.txt"
-#endif
-#ifndef TOUCHKBD_PINYIN_PHRASE_DICT
-#define TOUCHKBD_PINYIN_PHRASE_DICT ":/ChinesePhraseLib/pinyin_phrase.txt"
-#endif
-#ifndef TOUCHKBD_GOOGLE_DICT
-#define TOUCHKBD_GOOGLE_DICT       ":/GoogleChineseLib/rawdict_utf16_65105_freq_sort.txt"
-#endif
-
-// 字典资源打开：扁平路径（qrc 写了 alias 的形态，模板 qrc 现状）优先，
-// 打不开再回落「prefix/dicts/文件名」的嵌套路径试一次。
-// 缘由：qrc 漏写 alias 时真实路径会多出 /dicts 一节，三个字典 open 全部失败，
-// 而失败提示原是 qDebug（发布构建 QT_NO_DEBUG_OUTPUT 下被整段编掉）——静默
-// 失效表现为「候选栏只剩原始拼音、中文输入全废」。PUPSIT(2026-09-29)与
-// PressureMonitor_noflow(2026-10-09)两次现场反馈同一根因。此处双路径兜底：
-// 宿主 qrc 即使漏 alias 也能加载，不把正确性全押在资源配置上。
-static bool openDictFile(QFile &file, const QString &flatPath)
-{
-    file.setFileName(flatPath);
-    if (file.open(QIODevice::ReadOnly))
-        return true;
-
-    const int slash = flatPath.lastIndexOf(QLatin1Char('/'));
-    if (slash <= 0)
-        return false;
-    file.setFileName(flatPath.left(slash) + QStringLiteral("/dicts") + flatPath.mid(slash));
-    return file.open(QIODevice::ReadOnly);
-}
+// 三字典路径宏（TOUCHKBD_*）与打开兜底 openTouchKbdDict 收在 TouchKbdDict.h，
+// 与九宫格 T9PinyinEngine 共用一处
 
 const double BUTTON_SPACING_RATIO = 0.030;
 const double BUTTON_WIDTH_RATIO   = 0.09;
@@ -110,6 +80,9 @@ const QList<Modes> modeListBar3 = {
 
 const QList<Modes> modeListBar4 = {
     {{Qt::Key_Mode_switch, "",  "?123"}},
+    // 布局切换键：点击切到九宫格 T9Keyboard（InputManager 接管切换，见 layoutSwitchRequested）。
+    // 放在中/英键左边——中/英键须保持「空格左邻」这一既定位置（README 中/英状态标识节）
+    {{Qt::Key_Context2,    "",  QString::fromUtf8("九宫格")}},
     // 中/英切换键（空格左邻，兼作中英态状态标识）：display 两态循环「en」/「汉」，
     // 大字键帽样式见构造期 objectName/langSwitchKey；两态都由 m_isChinese 驱动
     {{Qt::Key_Context1,    "",  "en"},    {Qt::Key_Context1, "", QStringLiteral("汉")}},
@@ -211,11 +184,15 @@ Keyboard::Keyboard(QWidget *parent) :
                 button->setStyleSheet(button->styleSheet() + QStringLiteral(
                     "AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }"));
             }
-            int stretch = 0;
-            if (i == 0) stretch = 12;
-            else if (i == 1) stretch = 14;   // 中英键加宽（从空格匀 4 份）：容纳"汉/en"组合文本
-            else if (i == 2) stretch = 52;   // 空格：匀出 4 份给中英键后仍占一半以上
-            else stretch = 22;   // 回车与清空等宽
+            // 按键码取 stretch（不按下标：底行插过布局切换键，下标会漂）
+            int stretch = 22;    // 回车与清空等宽
+            switch (button->mode().key) {
+            case Qt::Key_Mode_switch: stretch = 12; break;
+            case Qt::Key_Context2:    stretch = 14; break;   // 「九宫格」三字 26px 约 78px
+            case Qt::Key_Context1:    stretch = 14; break;   // 中英键加宽：容纳"汉/en"组合文本
+            case Qt::Key_Space:       stretch = 38; break;   // 空格匀出 14 份给布局切换键
+            default: break;
+            }
             row4Layout->addWidget(button, stretch);
         }
     }
@@ -322,6 +299,18 @@ void Keyboard::setEnglishOnly(bool enabled)
     updateLangState();
 }
 
+bool Keyboard::isChineseMode() const
+{
+    return m_isChinese;
+}
+
+void Keyboard::setChineseMode(bool chinese)
+{
+    // switchEnOrCh 自带英文-only 守卫：英文-only 下请求中文被忽略
+    if (m_isChinese != chinese)
+        switchEnOrCh();
+}
+
 void Keyboard::switchEnOrCh()
 {
     // 英文-only 字段（密码类）不接受切到中文：候选能点选却过不了字段 validator，
@@ -379,6 +368,11 @@ void Keyboard::onCandidateCommitted(const int &code, const QString &text)
 
 void Keyboard::onButtonPressed(const int &code, const QString &text)
 {
+    // 布局切换（→ 九宫格）：只发请求，由 InputManager 收起本键盘、弹九宫格
+    if (code == Qt::Key_Context2) {
+        emit layoutSwitchRequested();
+        return;
+    }
 
     if (code == Qt::Key_Enter || code == Qt::Key_Return) {
         QWidget *w = QApplication::focusWidget();
@@ -464,6 +458,10 @@ void Keyboard::resizeButton()
             break;
         case Qt::Key_Mode_switch:
             connect(button, SIGNAL(pressed()), this, SLOT(switchSpecialChar()), Qt::UniqueConnection);
+            break;
+        case Qt::Key_Context2:
+            // 布局切换键不连发：长按会来回切布局
+            button->setAutoRepeat(false);
             break;
         case Qt::Key_Context1:
             // 切换键长按连发会反复翻转中英态（键帽「汉/en」状态标识跟着抖），关掉连发；
@@ -603,7 +601,7 @@ void ChineseWidget::addOneItem(const QString &text)
 void ChineseWidget::loadChineseLib()
 {
     QFile pinyin;
-    if (! openDictFile(pinyin, QStringLiteral(TOUCHKBD_PINYIN_DICT))) {
+    if (! openTouchKbdDict(pinyin, QStringLiteral(TOUCHKBD_PINYIN_DICT))) {
         qWarning() << "拼音单字字典打开失败（中文候选不可用）：" << TOUCHKBD_PINYIN_DICT;
         return;
     }
@@ -629,7 +627,7 @@ void ChineseWidget::loadChinesePhraseLib()
 {
     /* 加载词组字库内容 */
     QFile pinyin;
-    if (! openDictFile(pinyin, QStringLiteral(TOUCHKBD_PINYIN_PHRASE_DICT))) {
+    if (! openTouchKbdDict(pinyin, QStringLiteral(TOUCHKBD_PINYIN_PHRASE_DICT))) {
         qWarning() << "拼音词组字典打开失败（词组候选不可用）：" << TOUCHKBD_PINYIN_PHRASE_DICT;
         return;
     }
@@ -679,7 +677,7 @@ void ChineseWidget::loadChinesePhraseLib()
 void ChineseWidget::loadGoogleChineseLib()
 {
     QFile file;
-    if (! openDictFile(file, QStringLiteral(TOUCHKBD_GOOGLE_DICT))) {
+    if (! openTouchKbdDict(file, QStringLiteral(TOUCHKBD_GOOGLE_DICT))) {
         qWarning() << "谷歌字典打开失败（大字表候选不可用）：" << TOUCHKBD_GOOGLE_DICT;
         return;
     }

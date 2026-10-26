@@ -62,7 +62,9 @@ public:
     ///        由 InputManager 按输入框的 asciiOnly 动态属性调用——密码等仅允许
     ///        ASCII 的字段若不禁用中文态，触摸键盘的拼音候选能点选却过不了字段的
     ///        validator，表现为"中文能显示但不能选中写入"
-    void setEnglishOnly(bool enabled);
+    void setEnglishOnly(bool enabled) override;
+    bool isChineseMode() const override;
+    void setChineseMode(bool chinese) override;
 
 protected:
     /// @brief 尺寸变化：重排按键 + 重算圆角 mask

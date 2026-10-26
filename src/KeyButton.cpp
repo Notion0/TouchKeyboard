@@ -88,8 +88,15 @@ KeyButton::KeyButton(const QList<KeyButton::Mode> modes, QWidget *parent) :
         // display 停在空串——键帽全空白（仅显式传 display 的 bar4 有字）。
         // 判空追加 isEmpty 兜底，两种语义下都成立；Caps/退格等空显示键的图标
         // 由 Keyboard::resizeButton 按 key 设置，不受影响
-        if (mode.display.isNull() || mode.display.toString().isEmpty())
+        // ⚠ 判空仅限字符串型 variant：QVariant(QIcon).toString() 同样返回空串，
+        // 数字小键盘退格键 display 传的是 QIcon，被一并判空后覆盖成 mode.value
+        // （该键 value 为空串）→ 图标在构造期即被冲掉、键帽显示空白。非字符串
+        // 显示（QIcon 等）一律原样放行（aerocount 分叉线 2026-09-29 修复，回带）
+        if (mode.display.isNull()
+            || (mode.display.type() == QVariant::String
+                && mode.display.toString().isEmpty())) {
             mode.display = mode.value;
+        }
 
         m_modes.append(mode);
     }

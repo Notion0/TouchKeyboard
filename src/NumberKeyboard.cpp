@@ -17,6 +17,8 @@ using namespace AeaQt;
 typedef QList<KeyButton::Mode> Modes;
 typedef QList<Modes> ModesList;
 
+static const QString s_backspace_icon = ":/touchkeyboard/icons/backspace.png";
+
 // 面板尺寸：全键盘(990x360)的小弟——标题栏 30px + 3列x4行键帽约 110x65 + 底部动作行 65px，
 // 触控目标远超 48px 下限
 static const QSize kPanelSize(330, 355);
@@ -70,10 +72,14 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
             {{Qt::Key_9, "9"}},
     };
 
+    // 末行四键 - . 0 ⌫（e9bc6ab 形态）：e1ae3ed 修字典时误把退格删掉、只剩 . 0 -，
+    // 输错一位只能整段清空重输（2026-10-26 恢复）。退格 display 传 QIcon，
+    // 依赖 KeyButton 构造「仅字符串型空 display 才回落 value」的判空口径
     const QList<Modes> modeListBar4 = {
+            {{Qt::Key_Minus, "-"}},
             {{Qt::Key_Period, "."}},
             {{Qt::Key_0, "0"}},
-            {{Qt::Key_Minus, "-"}},
+            {{Qt::Key_Backspace, "", QIcon(s_backspace_icon)}},
     };
 
     createLayout(modeListBar1);

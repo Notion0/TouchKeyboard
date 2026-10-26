@@ -2,7 +2,7 @@
 
 > 仓库：https://github.com/Notion0/TouchKeyboard （Qt Widgets 5.15 / 6.x 双版本 / C++11 / MSVC·GCC 通吃）
 
-全键盘（字母/符号/中文候选）+ 数字小键盘 + 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
+文本键盘两种布局并存（26 键全键盘 / 九宫格 T9，运行期一键切换）+ 数字小键盘 + 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
 从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准；现同时供 PressureMonitor（Qt 5.15 线）与 PUPSIT（Qt 6 线）两个宿主使用。
 
 ## 30 秒接入
@@ -30,7 +30,26 @@
      ```
    - 代码里：`edit->setProperty("numericInput", true);`
    - ⚠ **`stdset="0"` 不可省**：uic 对无此标记的属性会按"标准属性"直接生成 `setNumericInput(true)` 编译失败（踩过）；带上才生成 `setProperty()` 动态属性调用。
-   不标的输入框（用户名/批号/标题等）弹全键盘。
+   不标的输入框（用户名/批号/标题等）弹文本键盘。
+4. （可选）默认用九宫格：`InputManager::Instance()->setTextLayout(InputManager::T9);`
+   Init 前后都可调。用户在键盘上点「九宫格 / 全键盘」键也会切换，`textLayout()` /
+   `textLayoutChanged` 可读到最后选择（不持久化，要跨重启记忆由宿主自己存）。
+
+## 九宫格 T9（2026-10-26 自 aerocount 分叉线合回）
+
+- 版式 672×360：拼音组合栏 + 候选栏 + 3×3 数字键；左列符号/标点/123，右列退格/清空/确认；
+  末行「中/英 | 0 空格 | 全键盘」。全部自绘，不用 QSS。
+- 四种模式：中文九宫格拼音（组合栏点选锁定拼音、`1` 分词、选词后剩余数字继续出候选、
+  中文态 `0` 上屏首选）/ 英文（按数字键后组合栏出 a b c A B C 直选 + 候选栏英文词）/ 123 / 符号页。
+- 英文词来源：学过的词（QSettings `T9Keyboard/learnedWords`，密码框不学）> 宿主业务词
+  （`InputManager::setExtraWords()` 或输入框 `t9Words` 动态属性，QStringList）> 内置常用词。
+- 密码框（`echoMode==Password`）：键盘顶部回显真实已输内容。
+- `asciiOnly` 输入框：两种布局都停靠英文态，中/英键置灰。
+- 词库：复用同三字典，**后台 QThread 加载**，加载完前候选栏显示「词库加载中…」。九宫格
+  **按需创建**——首次切到九宫格才建，从不用九宫格的宿主不付这份内存。
+- ⚠ 后台线程用 `QThread` 子类，不要改用 `QThread::create`/`std::future`/`std::async`：
+  aerocount 板端 libstdc++（GCC 10.3）缺 `CXXABI_1.3.13`，启动即崩（2026-10-22 实测）。
+- 单测：`tests/t9/`（`qmake && make && ./tst_t9engine`）。
 
 ## 行为参考
 
@@ -38,6 +57,7 @@
 |---|---|---|
 | 大小 | 990×300（标题栏 40 + 4 行键） | 330×355（标题栏 34 + 4 行 65px + 动作行 65px） |
 | 弹出条件 | 焦点进入任意 QLineEdit/QTextEdit | 同上且 `numericInput==true`（两键盘互斥） |
+| 弹出时 | — | **整选数值段**：首键即替换旧值；spinbox 只选数字不含单位；再点同一框重新整选（自 aerocount 合回） |
 | 提交 | **回车**键（editingFinished + 失焦 + 收起） | **确认**键（同语义；小键盘无回车键必须有） |
 | 清空 | 底行**清空**键（清拼音缓冲 + 清空输入框） | 底行**清空**键（清空输入框） |
 | 收起 | 点击非输入区 / 失焦 / 标题栏关闭钮 | 点击非输入区 / 失焦 / 确认 |
@@ -103,9 +123,13 @@ TouchKeyboard/
 ├── src/
 │   ├── AbstractKeyboard.h   基类：按键分发 + 品牌常量
 │   ├── KeyButton.h/.cpp     自绘键帽（多形态/长按连发/图标）
-│   ├── Keyboard.h/.cpp/.ui  全键盘
-│   ├── NumberKeyboard.h/.cpp 数字小键盘（0-9/./退格 + 清空/确认）
-│   └── InputManager.h/.cpp  双键盘选弹/定位/收起（numericInput 判据在这）
+│   ├── TouchKbdDict.h       三字典路径宏 + 打开兜底（26 键与 T9 共用）
+│   ├── Keyboard.h/.cpp/.ui  26 键全键盘
+│   ├── T9Keyboard.h/.cpp    九宫格文本键盘
+│   ├── T9PinyinEngine.h/.cpp 九宫格拼音引擎（纯逻辑，后台加载）
+│   ├── NumberKeyboard.h/.cpp 数字小键盘（0-9/-/./退格 + 清空/确认）
+│   └── InputManager.h/.cpp  选弹/定位/收起、布局切换（numericInput 判据在这）
+├── tests/t9/                T9 引擎单测
 └── resources/
     ├── TouchKeyboard.qrc    图标资源（:/touchkeyboard/icons/ 前缀）
     └── icons/               backspace/caplock/enter/hideBtn/space

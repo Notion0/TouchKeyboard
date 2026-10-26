@@ -1,4 +1,4 @@
-# TouchKeyboard.pri —— 触摸键盘模板：全键盘（字母/符号/中文候选）+ 数字小键盘 + InputManager
+# TouchKeyboard.pri —— 触摸键盘模板：文本键盘两种布局（26 键全键盘 / 九宫格 T9）+ 数字小键盘 + InputManager
 #
 # 宿主工程用法（.pro 内）：
 #   include(../TouchKeyboard/TouchKeyboard.pri)      # 相对路径（模板放宿主同级目录时最省事）
@@ -8,6 +8,7 @@
 # 双版本编译验证（QStringConverter 等 Qt6 专有 API 均以 QT_VERSION 守卫回落）；C++11。
 # 资源：模板自带 5 枚图标（qrc 前缀 :/touchkeyboard/icons/），拷走即用。
 # 中文输入：三字典已随本模板 qrc 编入（resources/dicts/，见 README「中文输入」），宿主零配置即得。
+# 布局：InputManager::setTextLayout(InputManager::T9) 设默认九宫格；键盘上「九宫格/全键盘」键运行期切换。
 # 换肤：改 src/AbstractKeyboard.h 的 brandLogoText() / brandPanelColor() 一处，两个键盘同时生效。
 
 TOUCHKBD_ROOT = $$PWD
@@ -16,14 +17,19 @@ INCLUDEPATH += $$TOUCHKBD_ROOT/src
 
 HEADERS += \
     $$TOUCHKBD_ROOT/src/AbstractKeyboard.h \
+    $$TOUCHKBD_ROOT/src/TouchKbdDict.h \
     $$TOUCHKBD_ROOT/src/KeyButton.h \
     $$TOUCHKBD_ROOT/src/Keyboard.h \
+    $$TOUCHKBD_ROOT/src/T9PinyinEngine.h \
+    $$TOUCHKBD_ROOT/src/T9Keyboard.h \
     $$TOUCHKBD_ROOT/src/NumberKeyboard.h \
     $$TOUCHKBD_ROOT/src/InputManager.h
 
 SOURCES += \
     $$TOUCHKBD_ROOT/src/KeyButton.cpp \
     $$TOUCHKBD_ROOT/src/Keyboard.cpp \
+    $$TOUCHKBD_ROOT/src/T9PinyinEngine.cpp \
+    $$TOUCHKBD_ROOT/src/T9Keyboard.cpp \
     $$TOUCHKBD_ROOT/src/NumberKeyboard.cpp \
     $$TOUCHKBD_ROOT/src/InputManager.cpp
 
