@@ -92,6 +92,7 @@ private:
 
     /// @brief 按容器尺寸重算按键几何
     void resizeButton();
+    void fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch);
 
     /// @brief 按 m_isChinese 刷新候选区可见性（中文态常驻，英文态收起让位标题栏）
     void updateLangState();

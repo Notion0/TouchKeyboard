@@ -29,16 +29,17 @@ typedef QList<Modes> ModesList;
 const int NORMAL_BUTTON_WIDTH  = 45;
 const int NORMAL_BUTTON_HEIGHT = 45;
 
-const QString BACKSPACE_ICON = ":/touchkeyboard/icons/backspace.png";
-const QString ENTER_ICON     = ":/touchkeyboard/icons/enter.png";
-const QString SPACE_ICON     = ":/touchkeyboard/icons/space.png";
-const QString CAPLOCK_ICON   = ":/touchkeyboard/icons/caplock.png";
+// 键帽图标改由 keyIcon() 现画（AbstractKeyboard.h）：目标板 Qt 无 PNG 支持，原 png 读出空图
 
 // 三字典路径宏（TOUCHKBD_*）与打开兜底 openTouchKbdDict 收在 TouchKbdDict.h，
 // 与九宫格 T9PinyinEngine 共用一处
 
 const double BUTTON_SPACING_RATIO = 0.030;
 const double BUTTON_WIDTH_RATIO   = 0.09;
+// 底行拉伸份数（构造期布局与 resizeButton 缩字估宽共用，改一处两边一致）
+const int kRow4TotalStretch = 122;   // 12 + 20 + 20 + 26 + 22 + 22
+const int kLayoutKeyStretch = 20;    // 「九宫格」
+const int kLangKeyStretch   = 20;    // 「en/汉」「汉/en」
 const double BUTTON_HEIGHT_RATIO  = 0.2;
 
 const QList<Modes> modeListBar1 = {
@@ -84,7 +85,7 @@ const QList<Modes> modeListBar4 = {
     // 放在中/英键左边——中/英键须保持「空格左邻」这一既定位置（README 中/英状态标识节）
     {{Qt::Key_Context2,    "",  QString::fromUtf8("九宫格")}},
     // 中/英切换键（空格左邻，兼作中英态状态标识）：display 两态循环「en」/「汉」，
-    // 大字键帽样式见构造期 objectName/langSwitchKey；两态都由 m_isChinese 驱动
+    // 大字键帽样式见 fitKeyFont（objectName=langSwitchKey）；两态都由 m_isChinese 驱动
     {{Qt::Key_Context1,    "",  "en"},    {Qt::Key_Context1, "", QStringLiteral("汉")}},
     {{Qt::Key_Space,       " ", ""/*空格*/}},
     {{Qt::Key_Enter,       "",  ""/*换行*/}},
@@ -179,18 +180,20 @@ Keyboard::Keyboard(QWidget *parent) :
             // 字号与键宽经现场反馈校正：36px 单字放得下，但"汉/en"五字符组合按
             // 36px 算约 86px 超出键位（原 10 份 stretch 可用宽约 70px）被截断——
             // 现 30px（组合约 67px）+ stretch 10→14 份（可用宽约 103px），双保险
-            if (button->mode().key == Qt::Key_Context1) {
-                button->setObjectName(QStringLiteral("langSwitchKey"));
-                button->setStyleSheet(button->styleSheet() + QStringLiteral(
-                    "AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }"));
-            }
+            // 字号规则现由 resizeButton → fitKeyFont 按实际键宽下发（基准仍 30px 粗体，
+            // 放不下才缩），objectName 也在那里设
             // 按键码取 stretch（不按下标：底行插过布局切换键，下标会漂）
             int stretch = 22;    // 回车与清空等宽
             switch (button->mode().key) {
             case Qt::Key_Mode_switch: stretch = 12; break;
-            case Qt::Key_Context2:    stretch = 14; break;   // 「九宫格」三字 26px 约 78px
-            case Qt::Key_Context1:    stretch = 14; break;   // 中英键加宽：容纳"汉/en"组合文本
-            case Qt::Key_Space:       stretch = 38; break;   // 空格匀出 14 份给布局切换键
+            // 2026-10-26 aerocount 板上反馈「九宫格」「en/汉」显示不全：宿主把键盘从 990
+            // 钳到 672 宽后，14 份只剩约 77px、扣 margin 后约 67px，放不下 26px「九宫格」
+            // （约 78px）与 30px 粗体「en/汉」。两键各提到 20 份（672 宽下约 100px 可用），
+            // 空格 38→26 让出（总份数仍 122，990 宽原貌只是空格略短）；再由
+            // resizeButton 按实际可用宽兜底缩字（fitKeyFont），更窄的宿主也不截断
+            case Qt::Key_Context2:    stretch = kLayoutKeyStretch; break;
+            case Qt::Key_Context1:    stretch = kLangKeyStretch; break;
+            case Qt::Key_Space:       stretch = 26; break;
             default: break;
             }
             row4Layout->addWidget(button, stretch);
@@ -441,8 +444,63 @@ KeyButton *Keyboard::createButton(QList<KeyButton::Mode> modes)
     return button;
 }
 
+/// 按底行实际可用宽把键帽字号缩到放得下（不超过 basePx）。
+/// QSS 的 font-size 会覆盖 setFont，所以字号仍走按钮级样式表（ID 选择器同既有口径）。
+/// 可用宽 = 键盘宽 × 份数/总份数 − KeyButton 的 QSS margin 5px×2 − 左右留白 4px×2。
+void Keyboard::fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch)
+{
+    const int avail = width() * stretch / kRow4TotalStretch - 18;
+    if (avail <= 0)
+        return;
+    // 中英键两态文本都量（「en/汉」「汉/en」），取较宽者
+    QStringList texts{button->text()};
+    if (button->mode().key == Qt::Key_Context1)
+        texts << QStringLiteral("en/汉") << QStringLiteral("汉/en");
+    int px = basePx;
+    for (; px > 12; --px) {
+        QFont f = button->font();
+        f.setPixelSize(px);
+        f.setBold(bold);
+        const QFontMetrics fm(f);
+        int widest = 0;
+        for (const QString &t : texts)
+            widest = qMax(widest, fm.horizontalAdvance(t));
+        if (widest <= avail)
+            break;
+    }
+    const QString name = button->mode().key == Qt::Key_Context1
+            ? QStringLiteral("langSwitchKey") : QStringLiteral("layoutSwitchKey");
+    button->setObjectName(name);
+    const QString rule = QStringLiteral(
+            "AeaQt--KeyButton#%1 { font-size: %2px; font-weight: %3; }")
+            .arg(name).arg(px).arg(bold ? QStringLiteral("bold") : QStringLiteral("normal"));
+    // 基础样式（KeyButton 构造期 DEFAULT_STYLE_SHEET）只记一次，之后每次 resize
+    // 只换本条规则——直接 += 会让样式表随 resize 无限增长
+    QString base = button->property("tkBaseSheet").toString();
+    if (base.isEmpty()) {
+        base = button->styleSheet();
+        button->setProperty("tkBaseSheet", base);
+    }
+    if (button->styleSheet() != base + rule)
+        button->setStyleSheet(base + rule);
+}
+
 void Keyboard::resizeButton()
 {
+    // 标题栏收起键：.ui 里用 QSS image:url(hideBtn.png)，目标板 Qt 无 PNG 支持时整块空白；
+    // 改为现画图标（keyIcon），QSS 只保留透明底/无边框
+    if (QPushButton *closeBtn = ui->btnClose) {
+        if (!closeBtn->property("tkIconSet").toBool()) {
+            closeBtn->setStyleSheet(QStringLiteral(
+                "QPushButton { background-color: transparent; border: none; padding: 0px; }"));
+            closeBtn->setIcon(keyIcon(KeyIcon::Hide));
+            closeBtn->setProperty("tkIconSet", true);
+        }
+        const int side = qMin(closeBtn->width(), closeBtn->height());
+        if (side > 0)
+            closeBtn->setIconSize(QSize(side, side));
+    }
+
     foreach (KeyButton *button, findChildren<KeyButton *>()) {
         int fixedWidth = width()*BUTTON_WIDTH_RATIO;
         int fixedHeight = height()*BUTTON_HEIGHT_RATIO;
@@ -450,10 +508,10 @@ void Keyboard::resizeButton()
 
         switch (button->mode().key) {
         case Qt::Key_Backspace:
-            button->setIcon(QIcon(BACKSPACE_ICON));
+            button->setIcon(keyIcon(KeyIcon::Backspace));
             break;
         case Qt::Key_CapsLock:
-            button->setIcon(QIcon(CAPLOCK_ICON));
+            button->setIcon(keyIcon(KeyIcon::CapsLock));
             connect(button, SIGNAL(pressed()), this, SLOT(switchCapsLock()), Qt::UniqueConnection);
             break;
         case Qt::Key_Mode_switch:
@@ -462,18 +520,20 @@ void Keyboard::resizeButton()
         case Qt::Key_Context2:
             // 布局切换键不连发：长按会来回切布局
             button->setAutoRepeat(false);
+            fitKeyFont(button, 26, false, kLayoutKeyStretch);
             break;
         case Qt::Key_Context1:
             // 切换键长按连发会反复翻转中英态（键帽「汉/en」状态标识跟着抖），关掉连发；
             // 字母/退格等输入键的连发是刻意保留的
             button->setAutoRepeat(false);
+            fitKeyFont(button, 30, true, kLangKeyStretch);
             connect(button, SIGNAL(pressed()), this, SLOT(switchEnOrCh()), Qt::UniqueConnection);
             break;
         case Qt::Key_Enter:
-            button->setIcon(QIcon(ENTER_ICON));
+            button->setIcon(keyIcon(KeyIcon::Enter));
             break;
         case Qt::Key_Space:
-            button->setIcon(QIcon(SPACE_ICON));
+            button->setIcon(keyIcon(KeyIcon::Space));
             break;
         default:
             break;

@@ -17,7 +17,7 @@ using namespace AeaQt;
 typedef QList<KeyButton::Mode> Modes;
 typedef QList<Modes> ModesList;
 
-static const QString s_backspace_icon = ":/touchkeyboard/icons/backspace.png";
+// 退格图标由 keyIcon() 现画（见 AbstractKeyboard.h：目标板 Qt 无 PNG 支持）
 
 // 面板尺寸：全键盘(990x360)的小弟——标题栏 30px + 3列x4行键帽约 110x65 + 底部动作行 65px，
 // 触控目标远超 48px 下限
@@ -79,7 +79,7 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
             {{Qt::Key_Minus, "-"}},
             {{Qt::Key_Period, "."}},
             {{Qt::Key_0, "0"}},
-            {{Qt::Key_Backspace, "", QIcon(s_backspace_icon)}},
+            {{Qt::Key_Backspace, "", keyIcon(KeyIcon::Backspace)}},
     };
 
     createLayout(modeListBar1);

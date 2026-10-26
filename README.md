@@ -96,12 +96,14 @@ PressureMonitor_noflow(2026-10-09)两次现场反馈同一根因；`Keyboard.cpp
 上屏；离开中文态（或键盘收起）时未提交的拼音缓冲与候选一并丢弃，不会串到下一个
 输入框。
 
-实现要点（`Keyboard.cpp`）：构造期给该键设 `objectName=langSwitchKey` 并追加
-`AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }`——ID 选择器
+实现要点（`Keyboard.cpp`）：`resizeButton()` → `fitKeyFont()` 给该键设 `objectName=langSwitchKey` 并下发
+`AeaQt--KeyButton#langSwitchKey { font-size: 30px; font-weight: bold; }`（按实际键宽放不下时逐级缩字，
+「九宫格」键同理走 `#layoutSwitchKey`，基准 26px）——ID 选择器
 优先级高于 KeyButton 默认键帽 QSS（`DEFAULT_STYLE_SHEET` 的 26px），故只有这一个键
 变大字（不能用 `setFont`：QSS 设了 font-size 会覆盖控件字体）；键帽文本由
 `m_isChinese` 驱动、收在 `updateLangState()` 单一出处（不走 modes 循环——单字循环态
-表达不了「汉/en」组合语义）；键宽从空格匀 4 份（stretch 14）容纳五字符组合不截断。
+表达不了「汉/en」组合语义）；底行份数 ?123:九宫格:中英:空格:回车:清空 = 12:20:20:26:22:22（2026-10-26：
+宿主钳到 672 宽时原 14 份放不下「九宫格」与「en/汉」，各提到 20 份并加缩字兜底）。
 另注意：切符号页（`?123`）不会动这个键（`switchSpecialChar()` 显式排除），否则键帽
 被打回英文态而 `m_isChinese` 仍是中文，状态显示与实际中英态相反。
 
@@ -132,7 +134,12 @@ TouchKeyboard/
 ├── tests/t9/                T9 引擎单测
 └── resources/
     ├── TouchKeyboard.qrc    图标资源（:/touchkeyboard/icons/ 前缀）
-    └── icons/               backspace/caplock/enter/hideBtn/space
+    └── icons/               backspace/caplock/enter/hideBtn/space（**已不再引用**，保留兼容）
+
+键帽图标（退格/大小写/回车/空格/收起）一律由 `AbstractKeyboard.h` 的 `keyIcon()` 用 QPainter
+现画，不读图片：RK3566 Buildroot 的 Qt 5.15.2 以 `-no-libpng` 构建，`QIcon(":/…png")` 读出空图，
+全键盘这几枚键与数字小键盘退格整块空白（2026-10-26 aerocount 板上实测）。新增图标键照此办理，
+别再引 png/svg。
 ```
 
 ## 已知边界

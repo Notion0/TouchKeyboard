@@ -473,14 +473,18 @@ void T9Keyboard::hideEvent(QHideEvent *event)
 
 QStringList T9Keyboard::punctuation() const
 {
+    // 数字页同样把 @ 放首位（2026-10-26 现场反馈：数字界面找不到 @，
+    // 输带 @ 的密码要来回切页）
     if (m_mode == Digits)
-        return {QStringLiteral("+"), QStringLiteral("-"), QStringLiteral("*"),
+        return {QStringLiteral("@"), QStringLiteral("+"), QStringLiteral("-"), QStringLiteral("*"),
                 QStringLiteral("/"), QStringLiteral("%"), QStringLiteral("="),
                 QStringLiteral(":"), QStringLiteral("("), QStringLiteral(")")};
+    // @ 提到首位（2026-10-26 现场反馈「@ 藏得太深」）：左侧竖条只露约 2.8 项，
+    // 原先 @ 排第 8 要滚到底才看得到；账户/邮箱/密码里 @ 是最常用的英文符号
     if (m_mode == English)
-        return {QStringLiteral(","), QStringLiteral("."), QStringLiteral("?"),
-                QStringLiteral("!"), QStringLiteral(":"), QStringLiteral(";"),
-                QStringLiteral("'"), QStringLiteral("@")};
+        return {QStringLiteral("@"), QStringLiteral(","), QStringLiteral("."),
+                QStringLiteral("?"), QStringLiteral("!"), QStringLiteral(":"),
+                QStringLiteral(";"), QStringLiteral("'")};
     return {QStringLiteral("，"), QStringLiteral("。"), QStringLiteral("？"),
             QStringLiteral("！"), QStringLiteral("、"), QStringLiteral("："),
             QStringLiteral("；"), QStringLiteral("…")};
@@ -492,7 +496,8 @@ QStringList T9Keyboard::symbolPage() const
         return QString::fromUtf8("，。？！、：；…“”‘’（）《》—·￥【】～「」")
                 .split(QString(), Qt::SkipEmptyParts);
     }
-    return QString::fromLatin1(",.?!:;'\"()[]{}<>@#$%&*_~")
+    // @ 放英文符号页首位（同上，2026-10-26）
+    return QString::fromLatin1("@,.?!:;'\"()[]{}<>#$%&*_~")
             .split(QString(), Qt::SkipEmptyParts);
 }
 
@@ -521,7 +526,7 @@ void T9Keyboard::applyMode()
         if (m_mode == Chinese)
             sub = n == 1 ? tr("分词") : QString::fromLatin1(groups[n]).toUpper();
         else if (m_mode == English)
-            sub = n == 1 ? QStringLiteral(".,?!") : QString::fromLatin1(groups[n]);
+            sub = n == 1 ? QStringLiteral("@.,?!") : QString::fromLatin1(groups[n]);
         key->setLabels(QString::number(n), sub);
     }
 
@@ -584,7 +589,7 @@ namespace {
 QString tapLetters(int digit)
 {
     static const char *const table[10] = {
-        "", ".,?!1", "abc2", "def3", "ghi4", "jkl5", "mno6", "pqrs7", "tuv8", "wxyz9"
+        "", "@.,?!1", "abc2", "def3", "ghi4", "jkl5", "mno6", "pqrs7", "tuv8", "wxyz9"
     };
     return digit >= 1 && digit <= 9 ? QString::fromLatin1(table[digit]) : QString();
 }
@@ -721,20 +726,31 @@ void T9Keyboard::refreshEnglish()
 {
     if (m_mode != English)
         return;
-    // 候选栏：数字序列匹配的词（学习 → 业务 → 内置，见 matchWords）
-    const QStringList words = matchWords(m_engInput);
+    // 候选栏：数字序列匹配的词（学习 → 业务 → 内置，见 matchWords）。
+    // 密码框不联想单词（2026-10-26 aerocount 板上反馈）：①字母组原先排在 12 个词之后，
+    // 候选栏一屏只看得见 admin/administrator… 这类词，按 2 看不到「a b c 2 A B C」；
+    // ②密码框给出常见词联想等于提示弱口令。密码框候选栏只放末位键的字母直选
+    const QStringList words = m_echoActive ? QStringList() : matchWords(m_engInput);
     m_engWordCount = words.size();
 
     // 顶部组合栏：末位数字键的字母直选——小写在前、大写在后（a b c A B C），
     // 点选即上屏，没有多击的时间限制。密码场景该区域让给回显，字母并入候选栏。
     QStringList letters;
     if (!m_engInput.isEmpty()) {
+        // 顺序 a b c A B C 2：小写一组、大写一组、最后数字/标点（原实现交错成
+        // a A b B c C，与本注释及现场期望「abcABC」不符，2026-10-26 改正）
         const QString group = tapLetters(m_engInput.right(1).toInt());
+        QStringList upper;
+        QStringList others;
         for (const QChar c : group) {
-            letters.append(c);
-            if (c.isLetter())
-                letters.append(c.toUpper());
+            if (c.isLetter()) {
+                letters.append(c);
+                upper.append(c.toUpper());
+            } else {
+                others.append(c);
+            }
         }
+        letters << upper << others;
     }
 
     m_compBar->setVisible(!m_echoActive);

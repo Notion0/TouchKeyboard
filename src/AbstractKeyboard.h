@@ -20,6 +20,10 @@
 #include <QString>
 #include <QPainterPath>
 #include <QRegion>
+#include <QHash>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 
 namespace AeaQt {
 
@@ -72,6 +76,102 @@ inline QRegion roundedWindowMask(const QSize &size, int radius)
     QPainterPath path;
     path.addRoundedRect(QRect(QPoint(0, 0), size), radius, radius);
     return QRegion(path.toFillPolygon().toPolygon());
+}
+
+/// 键帽图标种类（见 keyIcon）
+enum class KeyIcon { Backspace, CapsLock, Enter, Space, Hide };
+
+/// 键帽图标：QPainter 现画矢量、不读任何图片文件。
+///
+/// 为什么不用 resources/icons/*.png（2026-10-26 aerocount 板上实测）：RK3566 Buildroot
+/// 的 Qt 5.15.2 以 -no-libpng 构建（libQt5Gui 不链 libpng、无内置 PNG 读取器，
+/// imageformats 插件也只有 ico/svg），QIcon(":/…png") 读出空图——全键盘大小写/退格/
+/// 回车/空格与标题栏收起键整块空白，数字小键盘退格同样。SVG 也要靠 iconengines 插件，
+/// 宿主不一定装。现画则任何 Qt 构建都能显示。png 资源保留在 qrc 里不再引用（向后兼容）。
+/// @param kind  图标种类
+/// @param color 线条/填充颜色（默认黑，与原 png 一致）
+inline QIcon keyIcon(KeyIcon kind, const QColor &color = Qt::black)
+{
+    // resizeButton 每次 resize 都会重设图标：按 (种类, 颜色) 缓存，只画一次
+    static QHash<quint64, QIcon> cache;
+    const quint64 cacheKey = (quint64(kind) << 32) | color.rgba();
+    const auto hit = cache.constFind(cacheKey);
+    if (hit != cache.constEnd())
+        return hit.value();
+
+    const int s = 96;   // 画布边长；QIcon 按 iconSize 缩放，96 足够清晰
+    QPixmap pm(s, s);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(color, 8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    switch (kind) {
+    case KeyIcon::Backspace: {
+        // 左尖五边形外框 + 中间 ×
+        QPainterPath body;
+        body.moveTo(8, 48);
+        body.lineTo(30, 20);
+        body.lineTo(86, 20);
+        body.lineTo(86, 76);
+        body.lineTo(30, 76);
+        body.closeSubpath();
+        p.drawPath(body);
+        p.drawLine(QPointF(46, 34), QPointF(70, 62));
+        p.drawLine(QPointF(70, 34), QPointF(46, 62));
+        break;
+    }
+    case KeyIcon::CapsLock: {
+        // 实心上箭头 + 底横线
+        QPainterPath arrow;
+        arrow.moveTo(48, 8);
+        arrow.lineTo(84, 44);
+        arrow.lineTo(62, 44);
+        arrow.lineTo(62, 72);
+        arrow.lineTo(34, 72);
+        arrow.lineTo(34, 44);
+        arrow.lineTo(12, 44);
+        arrow.closeSubpath();
+        p.setBrush(color);
+        p.drawPath(arrow);
+        p.drawLine(QPointF(32, 86), QPointF(64, 86));
+        break;
+    }
+    case KeyIcon::Enter: {
+        // ↵：右上竖线下行、左折，左端箭头
+        p.drawLine(QPointF(80, 16), QPointF(80, 60));
+        p.drawLine(QPointF(80, 60), QPointF(20, 60));
+        p.drawLine(QPointF(20, 60), QPointF(40, 40));
+        p.drawLine(QPointF(20, 60), QPointF(40, 80));
+        break;
+    }
+    case KeyIcon::Space: {
+        // ⎵
+        p.drawLine(QPointF(12, 44), QPointF(12, 64));
+        p.drawLine(QPointF(12, 64), QPointF(84, 64));
+        p.drawLine(QPointF(84, 64), QPointF(84, 44));
+        break;
+    }
+    case KeyIcon::Hide: {
+        // 键盘外框 + 下方收起箭头
+        p.drawRoundedRect(QRectF(10, 12, 76, 46), 8, 8);
+        QPen thin(color, 6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(thin);
+        for (int i = 0; i < 4; ++i)
+            p.drawPoint(QPointF(26 + i * 15, 28));
+        p.drawLine(QPointF(30, 44), QPointF(66, 44));
+        p.setPen(pen);
+        p.drawLine(QPointF(34, 72), QPointF(48, 86));
+        p.drawLine(QPointF(48, 86), QPointF(62, 72));
+        break;
+    }
+    }
+    p.end();
+    const QIcon icon(pm);
+    cache.insert(cacheKey, icon);
+    return icon;
 }
 
 /// 面板圆角半径（px）：两键盘 QSS border-radius 与圆角 mask 的唯一来源，
