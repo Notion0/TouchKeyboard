@@ -2,7 +2,7 @@
 #
 # 宿主工程用法（.pro 内）：
 #   include(../TouchKeyboard/TouchKeyboard.pri)      # 相对路径（模板放宿主同级目录时最省事）
-#   或 include(/home/yao/TouchKeyboard/TouchKeyboard.pri)   # 绝对路径
+#   或 include(/path/to/TouchKeyboard/TouchKeyboard.pri)   # 绝对路径
 #
 # 依赖：Qt Widgets——Qt 5.15（MSVC v142，PressureMonitor 线）与 Qt 6.x（PUPSIT 线）
 # 双版本编译验证（QStringConverter 等 Qt6 专有 API 均以 QT_VERSION 守卫回落）；C++11。

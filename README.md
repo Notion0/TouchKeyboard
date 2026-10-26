@@ -1,6 +1,6 @@
 # TouchKeyboard —— 触摸键盘模板
 
-> 仓库：https://github.com/Notion0/TouchKeyboard （Qt Widgets 5.15 / 6.x 双版本 / C++11 / MSVC·GCC 通吃）
+> Qt Widgets 5.15 / 6.x 双版本 / C++11 / MSVC·GCC 通吃
 
 文本键盘两种布局并存（26 键全键盘 / 九宫格 T9，运行期一键切换）+ 数字小键盘 + 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
 从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准；现同时供 PressureMonitor（Qt 5.15 线）与 PUPSIT（Qt 6 线）两个宿主使用。

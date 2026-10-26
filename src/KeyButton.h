@@ -1,12 +1,5 @@
 // Keyboard/KeyButton.h
 // 键盘按键控件：自绘键帽，支持普通键/特殊键（切换/退格/空格等）长按连发。
-/**********************************************************
-#Author: Qtjun
-#WeChat Official Accounts: qthub_com
-#QQ Group: 732271126
-#Email: 2088201923@qq.com
-**********************************************************/
-
 #ifndef AEA_KEY_BUTTON_H
 #define AEA_KEY_BUTTON_H
 

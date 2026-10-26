@@ -1,12 +1,5 @@
 // Keyboard/AbstractKeyboard.h
 // 触摸键盘抽象基类：按键布局与发送按键事件的公共骨架，具体键盘（中文/数字）继承实现。
-/**********************************************************
-#Author: Qtjun
-#WeChat Official Accounts: qthub_com
-#QQ Group: 732271126
-#Email: 2088201923@qq.com
-**********************************************************/
-
 #ifndef AEA_ABSTRACT_KEYBOARD_H
 #define AEA_ABSTRACT_KEYBOARD_H
 
