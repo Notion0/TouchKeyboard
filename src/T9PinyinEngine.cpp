@@ -1,5 +1,8 @@
 #include "T9PinyinEngine.h"
 
+#include <QMutex>
+#include <QTimer>
+
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
@@ -146,7 +149,7 @@ void addEntry(T9PinyinData &data, const QString &word, const QString &pinyin,
     if (e.digits.isEmpty())
         return;
     if (py.contains(QLatin1Char(' '))) {
-        for (const QString &s : py.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+        for (const QString &s : py.split(QLatin1Char(' '), QString::SkipEmptyParts))
             e.abbr.append(T9PinyinEngine::letterToDigit(s.at(0)));
     }
     e.weight = weight;
@@ -175,7 +178,7 @@ void loadGoogle(T9PinyinData &data)
     // 行格式「汉字 词频 标志 拼 音…」：前三段按空白切，其余为拼音
     while (!in.atEnd()) {
         const QString line = in.readLine().trimmed();
-        const QStringList parts = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        const QStringList parts = line.split(QLatin1Char(' '), QString::SkipEmptyParts);
         if (parts.size() < 4)
             continue;
         bool ok = false;
@@ -237,10 +240,59 @@ QSharedPointer<const T9PinyinData> T9PinyinEngine::buildData()
     return data;
 }
 
+namespace {
+
+/*
+ * 进程级共享词库（2026-11-09 AeroCount「拼音第一次输入很卡」的根因修复）。
+ *
+ * 实测：三本字典（词组表 8MB + 谷歌表 3.5MB + 单字表）解析一份要约 0.5s
+ * （开发机 x86；RK3566 上 1~3s），解析完的索引约 150MB，而解析完成后的候选
+ * 查询只要 0~2ms——首次卡顿全是加载本身。宿主会在 main() 里先建一个"预热"
+ * 引擎把加载提前到启动最早期（主窗还没构造），键盘自己那个引擎晚约 200ms 才建：
+ * 两边各解一遍既慢、又各占 150MB。这里让后建的实例直接复用先建的那一份——
+ * 已有数据立即就绪，已有实例在加载则轮询等它发布。
+ *
+ * 访问都在 GUI 线程（loadAsync 与加载完成后的回调都是），仍加锁防哪个宿主把
+ * 引擎建到工作线程上。
+ */
+QMutex g_sharedMutex;
+QSharedPointer<const T9PinyinData> g_sharedData;
+bool g_sharedLoading = false;
+
+QSharedPointer<const T9PinyinData> sharedData()
+{
+    QMutexLocker locker(&g_sharedMutex);
+    return g_sharedData;
+}
+
+void publishSharedData(const QSharedPointer<const T9PinyinData> &data)
+{
+    QMutexLocker locker(&g_sharedMutex);
+    g_sharedData = data;
+}
+
+bool claimSharedLoading()
+{
+    QMutexLocker locker(&g_sharedMutex);
+    if (g_sharedLoading)
+        return false;
+    g_sharedLoading = true;
+    return true;
+}
+
+void releaseSharedLoading()
+{
+    QMutexLocker locker(&g_sharedMutex);
+    g_sharedLoading = false;
+}
+
+} // namespace
+
 void T9PinyinEngine::loadSync()
 {
     m_data = buildData();
     m_loading = false;
+    publishSharedData(m_data);   // 同步加载也发布：后续实例不必再解一遍
     emit ready();
 }
 
@@ -267,15 +319,41 @@ private:
 
 } // namespace
 
+bool T9PinyinEngine::adoptSharedData()
+{
+    const QSharedPointer<const T9PinyinData> shared = sharedData();
+    if (shared.isNull())
+        return false;
+    m_data = shared;
+    m_loading = false;
+    emit ready();
+    return true;
+}
+
 void T9PinyinEngine::loadAsync()
 {
     if (m_loading || isReady())
         return;
+    // 已有别的实例加载过：直接复用，连后台线程都不起
+    if (adoptSharedData())
+        return;
+    if (!claimSharedLoading()) {
+        /*
+         * 已有实例在加载：轮询等它发布，别重复解一遍 12MB 字典。
+         * 轮询而不是"等对方通知"：不需要在模板里加静态信号表，100ms 一级、
+         * 加载完最多多等一级，代价可以忽略；引擎若先被销毁，singleShot 的
+         * context(this) 会自动取消，不会野掉。
+         */
+        QTimer::singleShot(100, this, [this] { loadAsync(); });
+        return;
+    }
     m_loading = true;
 
     // 后台线程只构建局部对象，经 queued 调用回到本对象所在线程再一次性替换（T8）
     auto *thread = new T9LoadThread(this, [this](QSharedPointer<const T9PinyinData> data) {
         QMetaObject::invokeMethod(this, [this, data] {
+            publishSharedData(data);   // 先发布：后建的实例（含轮询中的）立刻能复用
+            releaseSharedLoading();
             m_data = data;
             m_loading = false;
             emit ready();
@@ -395,7 +473,7 @@ bool separatorsAligned(const QString &pinyin, const QList<int> &seps, int limit)
         return true;
     QList<int> bounds;
     int acc = 0;
-    for (const QString &syl : pinyin.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+    for (const QString &syl : pinyin.split(QLatin1Char(' '), QString::SkipEmptyParts)) {
         acc += syl.size();
         bounds.append(acc);
     }
