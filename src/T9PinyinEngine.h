@@ -75,6 +75,9 @@ signals:
 
 private:
     static QSharedPointer<const T9PinyinData> buildData();
+    // 复用进程级共享词库（见 .cpp 匿名命名空间说明）：已有数据时直接采纳并
+    // emit ready()，返回 true；没有则返回 false，调用方自己决定起不起加载。
+    bool adoptSharedData();
 
     QSharedPointer<const T9PinyinData> m_data;
     bool m_loading = false;
