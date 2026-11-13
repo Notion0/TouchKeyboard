@@ -2,11 +2,13 @@
 // 九宫格（T9）拼音引擎：纯逻辑，不含 QWidget。数字序列 -> 拼音组合 / 汉字候选。
 // 词库复用模板内置三字典（resources/dicts/，只读）。后台 QThread 加载，
 // 完成后回到引擎线程一次性替换（docs/17 4.3/K3）。
+// 加载走扁平二进制缓存（2026-11-13）：首启解析文本字典并原子写缓存到
+// AppDataLocation，之后启动只 mmap+校验（几十 ms，替代原 ~5.5s 全量解析）。
+// 缓存指纹 = 宿主 exe 的 size+mtime + 格式版本；失效/损坏自动回退文本解析。
 #ifndef AEA_T9_PINYIN_ENGINE_H
 #define AEA_T9_PINYIN_ENGINE_H
 
 #include <QByteArray>
-#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QSharedPointer>
@@ -15,18 +17,6 @@
 
 namespace AeaQt {
 
-// 词库条目。pinyin 以空格分音节（"zhong guo"）；digits 为全拼数字串；
-// abbr 为多音节词首字母数字串（单音节为空）
-struct T9Entry
-{
-    QString word;
-    QString pinyin;
-    QByteArray digits;
-    QByteArray abbr;
-    float weight = 0;     // 谷歌表词频；其余来源为 0
-    quint8 source = 0;    // 0 谷歌表 / 1 单字表 / 2 词组表（K4 排序次序）
-};
-
 // 候选：上屏文本 + 该词占用的输入数字位数（不含分词符）
 struct T9Candidate
 {
@@ -34,13 +24,9 @@ struct T9Candidate
     int digitCount = 0;
 };
 
-// 引擎全部索引（后台线程构建，完成后只读）
-struct T9PinyinData
-{
-    QList<T9Entry> entries;
-    QHash<QByteArray, QList<int>> byPrefix2;   // digits 前 2 位 -> 下标
-    QHash<QByteArray, QList<int>> abbrPrefix2; // abbr 前 2 位 -> 下标
-};
+// 引擎全部索引（后台线程构建，完成后只读）。扁平表示：字符串池 + 定长记录 +
+// 前缀桶索引，文本解析与 mmap 缓存共用同一查询路径。定义在 .cpp。
+struct T9PinyinData;
 
 class T9PinyinEngine : public QObject
 {
