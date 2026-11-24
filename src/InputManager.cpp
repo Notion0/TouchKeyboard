@@ -224,7 +224,9 @@ void InputManager::showKeyboard(QWidget* now)
     const QPoint hostOrigin = mainWidget->mapToGlobal(QPoint(0, 0));
     const QRect hostRect = mainWidget->rect();
 
-    int x = globalPos.x() - hostOrigin.x();
+    // 水平居中：与输入框左缘无关，三个键盘统一按主窗宽度居中；
+    // 键盘宽于窗宽时 x 为负，交给下面的左侧钳制兜底夹回
+    int x = (hostRect.width() - keyboardSize.width()) / 2;
     int y = globalPos.y() - hostOrigin.y();
 
     // ===== 右侧越界 =====

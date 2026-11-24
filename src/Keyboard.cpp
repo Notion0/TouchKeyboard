@@ -1,5 +1,6 @@
 #include "Keyboard.h"
 #include "KeyButton.h"
+#include "AeaKeyboardStyle.h"
 #include <QVBoxLayout>
 #include <QFile>
 #if (QT_VERSION >= QT_VERSION_CHECK(6,0,0))
@@ -10,10 +11,12 @@
 #include <QLineEdit>
 #include <QAbstractSpinBox>
 #include <QTextEdit>
-
-#if (QT_VERSION >= QT_VERSION_CHECK(5,0,0))
 #include <QScroller>
-#endif
+#include <QScrollerProperties>
+#include <QStyledItemDelegate>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
 
 #include <QRegularExpression>
 #include <QDebug>
@@ -26,20 +29,33 @@ using namespace AeaQt;
 typedef QList<KeyButton::Mode> Modes;
 typedef QList<Modes> ModesList;
 
-const int NORMAL_BUTTON_WIDTH  = 45;
-const int NORMAL_BUTTON_HEIGHT = 45;
-
 // 键帽图标改由 keyIcon() 现画（AbstractKeyboard.h）：目标板 Qt 无 PNG 支持，原 png 读出空图
 
 // 三字典路径宏（TOUCHKBD_*）与打开兜底 openTouchKbdDict 收在 TouchKbdDict.h，
 // 与九宫格 T9PinyinEngine 共用一处
 
-const double BUTTON_SPACING_RATIO = 0.030;
+// 候选条目几何：条目高 36px 落进 40px 候选区视口（标题栏内 candidateContainer），
+// 条目宽按实测文字宽 + 左右留白算，最小 50px
+constexpr int kCandidateItemHeight = 36;
+constexpr int kCandidateItemMinWidth = 50;
+constexpr int kCandidateItemPadding = 12;
+// 候选条目默认像素字号（原 QSS 时代的 setPointSize(18) ≈ 24px；宿主可按字号系数下发）
+constexpr int kCandidateFontPixels = 24;
+
+// 26 键面板左右留白：frame 的 QVBoxLayout 左右各 4px，行容器填满 frame
+constexpr int kRowSideMargin = 8;
+// 第三行（大小写 + 7 字母 + 退格）非统一键的 stretch 份数
+constexpr int kRow3CapsStretch = 70;
+constexpr int kRow3LetterStretch = 69;
 const double BUTTON_WIDTH_RATIO   = 0.09;
-// 底行拉伸份数（构造期布局与 resizeButton 缩字估宽共用，改一处两边一致）
-const int kRow4TotalStretch = 122;   // 12 + 20 + 20 + 26 + 22 + 22
-const int kLayoutKeyStretch = 20;    // 「九宫格」
-const int kLangKeyStretch   = 20;    // 「en/汉」「汉/en」
+// 底行非统一键的 stretch 份数（各键一份；确认/清空两枚统一宽功能键的份数由
+// applyRowStretches 按 kEnterSpec/kClearSpec 反解，写回成员 m_row4TotalStretch）
+const int kModeSwitchStretch = 12;  // 「?123」「abc」
+const int kLayoutKeyStretch = 20;   // 「九宫格」
+const int kLangKeyStretch   = 20;   // 「en/汉」「汉/en」
+const int kSpaceStretch     = 26;   // 「空格」
+const int kRow4OtherStretch = kModeSwitchStretch + kLayoutKeyStretch
+                              + kLangKeyStretch + kSpaceStretch;
 const double BUTTON_HEIGHT_RATIO  = 0.2;
 
 const QList<Modes> modeListBar1 = {
@@ -76,6 +92,8 @@ const QList<Modes> modeListBar3 = {
     {{Qt::Key_B, "b"}, {Qt::Key_B, "B"}, {Qt::Key_unknown,   ":"}},
     {{Qt::Key_N, "n"}, {Qt::Key_N, "N"}, {Qt::Key_Semicolon, ";"}},
     {{Qt::Key_M, "m"}, {Qt::Key_M, "M"}, {Qt::Key_Slash,     "/"}},
+    // 退格键帽文案「退格」由 applyKeyLabels() 统一下发（tr() + 统一规格表 kBackspaceSpec），
+    // 不写死在 modes 里——写死就绕过了 tr()，切语言时不会跟着变
     {{Qt::Key_Backspace, "", ""/*退格*/}}
 };
 
@@ -83,15 +101,15 @@ const QList<Modes> modeListBar4 = {
     {{Qt::Key_Mode_switch, "",  "?123"}},
     // 布局切换键：点击切到九宫格 T9Keyboard（InputManager 接管切换，见 layoutSwitchRequested）。
     // 放在中/英键左边——中/英键须保持「空格左邻」这一既定位置（README 中/英状态标识节）
-    {{Qt::Key_Context2,    "",  QString::fromUtf8("九宫格")}},
+    {{Qt::Key_Context2,    "",  ""/*九宫格*/}},
     // 中/英切换键（空格左邻，兼作中英态状态标识）：display 两态循环「en」/「汉」，
     // 大字键帽样式见 fitKeyFont（objectName=langSwitchKey）；两态都由 m_isChinese 驱动
     {{Qt::Key_Context1,    "",  "en"},    {Qt::Key_Context1, "", QStringLiteral("汉")}},
     {{Qt::Key_Space,       " ", ""/*空格*/}},
-    {{Qt::Key_Enter,       "",  ""/*换行*/}},
+    {{Qt::Key_Enter,       "",  ""/*确认*/}},
     // 清空折进底行（与 PUPSIT 全键盘 Clear+Enter 同形态；确认不单列——回车即确认，
     // 二者行为完全相同，单列属冗余。数字小键盘无回车键，其底行才保留清空/确认）
-    {{Qt::Key_Clear,       "", QString::fromUtf8("清空")}},
+    {{Qt::Key_Clear,       "", ""/*清空*/}},
 };
 
 Keyboard::Keyboard(QWidget *parent) :
@@ -102,17 +120,16 @@ Keyboard::Keyboard(QWidget *parent) :
 {
     ui->setupUi(this);
 
-    // 面板换肤与 logo 文本按品牌常量套用（.ui 里写死的青底/WOWA 仅作 Designer 预览默认值，
-    // 宿主改 AbstractKeyboard.h 的 brandPanelColor()/brandLogoText() 一处即全模板生效）
-    setStyleSheet(QStringLiteral(
-        "QWidget#keyBoard { background-color: %1; border-radius: 15px; border: 1px solid gray; }"
-        "#frame { background-color: %1; border-radius: 15px; border: 1px solid gray; }")
-        .arg(brandPanelColor().name()));
-    if (ui->labPY)
+    // 面板底色/圆角/灰边由 paintEvent 自绘（paintKeyboardPanel，禁 QSS），
+    // .ui 里写死的青底只作 Designer 预览；logo 文本按品牌常量套用
+    if (ui->labPY) {
         ui->labPY->setText(brandLogoText());
+        // 标题栏白字（原 QSS color: rgb(255,255,255)）：palette 唯一替代
+        applyForegroundColor(ui->labPY, titleInkColor());
+    }
 
-    // 真圆角窗口：QSS 圆角只裁 #frame 内容，窗口四角仍露底层显成方角——
-    // 透明背景 + 圆角 mask 从窗口层裁掉（半径与 #frame 的 border-radius 一致）
+    // 真圆角窗口：QSS 圆角只裁内容不裁窗口，四角会露底层显成方角——
+    // 圆角 mask 从窗口层裁掉（半径与 paintKeyboardPanel 的圆角一致）
     setMask(roundedWindowMask(size(), kCornerRadius));
 
     // 创建中文候选控件（如果需要）
@@ -151,52 +168,48 @@ Keyboard::Keyboard(QWidget *parent) :
     }
 
     // 第三行（需要处理拉伸因子）
-    QHBoxLayout *row3Layout = qobject_cast<QHBoxLayout*>(ui->row3Container->layout());
-    if (row3Layout) {
+    m_row3Layout = qobject_cast<QHBoxLayout*>(ui->row3Container->layout());
+    if (m_row3Layout) {
         for (int i = 0; i < modeListBar3.count(); ++i) {
             KeyButton *button = createButton(modeListBar3.at(i));
             if (i == 0 || i == modeListBar3.count() - 1) {
                 // 第一个和最后一个按钮拉伸因子 70
-                row3Layout->addWidget(button, 70);
+                m_row3Layout->addWidget(button, kRow3CapsStretch);
             } else {
-                row3Layout->addWidget(button, 69);
+                m_row3Layout->addWidget(button, kRow3LetterStretch);
             }
         }
     }
 
     // 第四行（不同按钮不同拉伸因子）
-    QHBoxLayout *row4Layout = qobject_cast<QHBoxLayout*>(ui->row4Container->layout());
-    if (row4Layout) {
+    m_row4Layout = qobject_cast<QHBoxLayout*>(ui->row4Container->layout());
+    if (m_row4Layout) {
         for (int i = 0; i < modeListBar4.count(); ++i) {
             KeyButton *button = createButton(modeListBar4.at(i));
             // 中/英切换键（空格左邻）兼作中英态状态标识：键帽「汉/en」「en/汉」
-            // 用 30px 加粗大字，明显大于普通键帽的 26px。现场要求把状态显示从
-            // 标题栏挪到这个键位——它是全键盘上唯一「与中文相关且常驻可见」的键，
-            // 且本来就在空格左边，合并后功能不丢（该键此前只有 en/汉 切换一个功能）。
-            // 实现途径：objectName + ID 选择器追加 QSS。不能用 setFont——QSS 的
-            // font-size 会覆盖控件字体（每次 polish 重算），必须走样式表；ID 选择器
-            // 优先级高于 KeyButton 构造里的类选择器 DEFAULT_STYLE_SHEET，字号必然
-            // 生效，不依赖"后写的规则胜出"这条弱保证。
+            // 用加粗大字，明显大于普通键帽。现场要求把状态显示从标题栏挪到这个键位——
+            // 它是全键盘上唯一「与中文相关且常驻可见」的键，且本来就在空格左边，
+            // 合并后功能不丢（该键此前只有 en/汉 切换一个功能）。
+            // 实现途径：setFont + fitKeyFont 按实际键宽缩字（模板禁 QSS 之后不再有
+            // ID 选择器样式表，字号一律走字体对象），objectName 保留给单测/查找
             // 字号与键宽经现场反馈校正：36px 单字放得下，但"汉/en"五字符组合按
-            // 36px 算约 86px 超出键位（原 10 份 stretch 可用宽约 70px）被截断——
-            // 现 30px（组合约 67px）+ stretch 10→14 份（可用宽约 103px），双保险
-            // 字号规则现由 resizeButton → fitKeyFont 按实际键宽下发（基准仍 30px 粗体，
-            // 放不下才缩），objectName 也在那里设
+            // 36px 算约 86px 超出键位；现基准 30px（组合约 67px）+ 20 份 stretch，
+            // 再由 resizeButton → fitKeyFont 按实际可用宽兜底缩字，更窄的宿主也不截断
             // 按键码取 stretch（不按下标：底行插过布局切换键，下标会漂）
-            int stretch = 22;    // 回车与清空等宽
+            int stretch = 22;    // 回车与清空等宽（占位，applyRowStretches 会按规格表重算）
             switch (button->mode().key) {
-            case Qt::Key_Mode_switch: stretch = 12; break;
+            case Qt::Key_Mode_switch: stretch = kModeSwitchStretch; break;
             // 2026-10-26 aerocount 板上反馈「九宫格」「en/汉」显示不全：宿主把键盘从 990
             // 钳到 672 宽后，14 份只剩约 77px、扣 margin 后约 67px，放不下 26px「九宫格」
             // （约 78px）与 30px 粗体「en/汉」。两键各提到 20 份（672 宽下约 100px 可用），
-            // 空格 38→26 让出（总份数仍 122，990 宽原貌只是空格略短）；再由
-            // resizeButton 按实际可用宽兜底缩字（fitKeyFont），更窄的宿主也不截断
+            // 空格 38→26 让出；再由 resizeButton 按实际可用宽兜底缩字（fitKeyFont），
+            // 更窄的宿主也不截断
             case Qt::Key_Context2:    stretch = kLayoutKeyStretch; break;
             case Qt::Key_Context1:    stretch = kLangKeyStretch; break;
-            case Qt::Key_Space:       stretch = 26; break;
+            case Qt::Key_Space:       stretch = kSpaceStretch; break;
             default: break;
             }
-            row4Layout->addWidget(button, stretch);
+            m_row4Layout->addWidget(button, stretch);
         }
     }
 
@@ -204,6 +217,9 @@ Keyboard::Keyboard(QWidget *parent) :
     QPushButton *closeBtn = ui->btnClose;
     if (closeBtn) {
         closeBtn->setFocusPolicy(Qt::NoFocus);
+        // 裸图标钮：flat 之后 Fusion 不再画按钮底与边框（禁 QSS 的唯一替代），
+        // 图标由 keyIcon(KeyIcon::Hide) 现画，命中区 44×44（kCloseButtonSize）
+        closeBtn->setFlat(true);
         connect(closeBtn, &QPushButton::clicked, this, &Keyboard::hide);
     }
 
@@ -213,8 +229,12 @@ Keyboard::Keyboard(QWidget *parent) :
         w->setFocusPolicy(Qt::NoFocus);
     }
 
-    // 调用 resizeButton 设置图标和特殊连接
+    // 顺序不能反：先按统一规格表重算底两行 stretch（fitKeyFont 要用总份数算可用宽），
+    // 再调 resizeButton 设图标/缩字，最后统一下发 tr() 键帽文案
+    applyRowStretches();
     resizeButton();
+    applyKeyLabels();
+    updateCloseButton();
 
     // 初始中英态为英文（m_isChinese=false）：候选区收起、中英键帽停在
     // m_modes.first() 的「en」，两处一致，故只需刷一次候选区可见性
@@ -230,11 +250,157 @@ Keyboard::~Keyboard()
 
 void Keyboard::resizeEvent(QResizeEvent *e)
 {
+    // 顺序不能反：stretch 先按新宽度重算，resizeButton 的缩字估宽才准
+    applyRowStretches();
     resizeButton();
     // 圆角 mask 随尺寸重算；判重防 setMask 触发二次 resize 时反复重入
     const QRegion m = roundedWindowMask(size(), kCornerRadius);
     if (mask() != m)
         setMask(m);
+}
+
+void Keyboard::paintEvent(QPaintEvent *e)
+{
+    Q_UNUSED(e);
+    QPainter p(this);
+    // 26 键面板带 1px 灰边（小键盘不带——既定差异）
+    paintKeyboardPanel(p, rect(), true);
+}
+
+// ---------------------------------------------------------------------------
+// W7 功能键统一规格表落地（AeaKeyboardStyle.h）
+// ---------------------------------------------------------------------------
+
+/// 底两行 stretch 与总份数：功能键统一规格表的基准宽换算而来。
+/// 第三行两端（大小写/退格）与第四行的功能键按 kBackspaceSpec/kEnterSpec/kClearSpec
+/// 的基准宽反解 stretch 份数，其余键份数不变；总份数写回 m_row4TotalStretch
+/// （fitKeyFont 的可用宽估算要用它）。宿主把键盘钳到 672 宽时，统一宽放不下就
+/// 退回与其余键同份（stretchForUnifiedWidth 内部兜底），不会出现 0/负份。
+void Keyboard::applyRowStretches()
+{
+    if (m_row3Layout) {
+        // 第三行：大小写 + 7 字母 + 退格；退格取统一基准宽
+        const int backspaceStretch = AeaQt::stretchForUnifiedWidth(
+            AeaQt::kBackspaceSpec.baseWidth, 1, kRow3CapsStretch + 7 * kRow3LetterStretch,
+            width());
+        for (int i = 0; i < m_row3Layout->count(); ++i) {
+            QWidget *w = m_row3Layout->itemAt(i)->widget();
+            if (!w)
+                continue;
+            KeyButton *button = qobject_cast<KeyButton *>(w);
+            if (!button)
+                continue;
+            const int stretch = button->mode().key == Qt::Key_Backspace
+                ? backspaceStretch
+                : (button->mode().key == Qt::Key_CapsLock ? kRow3CapsStretch
+                                                          : kRow3LetterStretch);
+            m_row3Layout->setStretch(i, stretch);
+        }
+    }
+
+    if (m_row4Layout) {
+        // 第四行：?123 + 九宫格 + 中英 + 空格 + 确认 + 清空；确认/清空取统一基准宽
+        const int other = kRow4OtherStretch;
+        const int unified = AeaQt::stretchForUnifiedWidth(
+            AeaQt::kEnterSpec.baseWidth, 2, other, width());
+        int total = other + 2 * unified;
+        for (int i = 0; i < m_row4Layout->count(); ++i) {
+            QWidget *w = m_row4Layout->itemAt(i)->widget();
+            if (!w)
+                continue;
+            KeyButton *button = qobject_cast<KeyButton *>(w);
+            if (!button)
+                continue;
+            int stretch;
+            switch (button->mode().key) {
+            case Qt::Key_Enter:       stretch = unified; break;   // 「确认」
+            case Qt::Key_Clear:       stretch = unified; break;   // 「清空」
+            case Qt::Key_Mode_switch: stretch = kModeSwitchStretch; break;
+            case Qt::Key_Context2:    stretch = kLayoutKeyStretch; break;
+            case Qt::Key_Context1:    stretch = kLangKeyStretch; break;
+            case Qt::Key_Space:       stretch = kSpaceStretch; break;
+            default:                  stretch = kRow3LetterStretch; break;
+            }
+            m_row4Layout->setStretch(i, stretch);
+            total += stretch;
+        }
+        // 上面累加时 other 已含 Mode_switch/Layout/Lang/Space 四项，default 分支的
+        // 字母键不在这行；重算一遍总份数，避免把 other 重复计入
+        total = 0;
+        for (int i = 0; i < m_row4Layout->count(); ++i) {
+            QLayoutItem *item = m_row4Layout->itemAt(i);
+            if (item && item->widget())
+                total += m_row4Layout->stretch(i);
+        }
+        m_row4TotalStretch = qMax(1, total);
+    }
+}
+
+/// 键帽文案（tr()）单一出处：构造、切符号页、语言切换都走这里。
+/// modes 里的 display 只作兜底占位（见 modeListBar3/4 的空串注释），
+/// 真正的可见文案由本函数按统一规格表下发——写死在 modes 里会绕过 tr()，
+/// 切语言时不会跟着变。
+void Keyboard::applyKeyLabels()
+{
+    const auto label = [](KeyButton *button, const QString &text) {
+        if (button && !text.isEmpty())
+            button->setText(text);
+    };
+    foreach (KeyButton *button, findChildren<KeyButton *>()) {
+        switch (button->mode().key) {
+        case Qt::Key_Backspace: label(button, QObject::tr("退格")); break;
+        case Qt::Key_Enter:     label(button, QObject::tr("确认")); break;
+        case Qt::Key_Clear:     label(button, QObject::tr("清空")); break;
+        case Qt::Key_Space:     label(button, QObject::tr("空格")); break;
+        case Qt::Key_Context2:  label(button, QObject::tr("九宫格")); break;
+        default: break;
+        }
+    }
+}
+
+/// 标题栏收起钮：flat + 现画图标 + 44 命中区（kCloseButtonSize）。
+/// .ui 里 btnClose 的 maximumSize 仍是 30×30、标题栏 40 高——那两项在 Designer
+/// 里改不动运行时，故运行时按规格表强制下发；.ui 同步改（见 Keyboard.ui）。
+void Keyboard::updateCloseButton()
+{
+    QPushButton *closeBtn = ui->btnClose;
+    if (!closeBtn)
+        return;
+    closeBtn->setFlat(true);
+    closeBtn->setFocusPolicy(Qt::NoFocus);
+    closeBtn->setMinimumSize(AeaQt::kCloseButtonSize, AeaQt::kCloseButtonSize);
+    closeBtn->setMaximumSize(AeaQt::kCloseButtonSize, AeaQt::kCloseButtonSize);
+    closeBtn->setIcon(keyIcon(KeyIcon::Hide));
+    closeBtn->setIconSize(QSize(AeaQt::kCloseButtonSize - 12,
+                                AeaQt::kCloseButtonSize - 12));
+    closeBtn->setProperty("tkIconSet", true);
+}
+
+/// 语言切换后刷新键帽文案：宿主 installTranslator 之后对键盘实例调一次；
+/// AbstractKeyboard::changeEvent 也会转到这里（键盘是长寿子控件，
+/// rebuildPagesForLanguage 重建页面时它不重建，必须靠 changeEvent 兜住）。
+void Keyboard::retranslate()
+{
+    applyKeyLabels();
+    // 标题栏 logo/品牌文本同样可能带 tr（宿主按品牌常量覆写，见构造函数）
+    if (ui->labPY)
+        ui->labPY->setText(brandLogoText());
+}
+
+/// 键帽像素字号下发（宿主按字号系数统一下发；0 = 用模板默认值）。
+/// KeyButton 键帽与候选条目一并走，两个出口都收在 AeaKeyboardStyle 的漏斗里。
+void Keyboard::setKeyCapPixels(int px)
+{
+    const int capPx = px > 0 ? px : AeaQt::globalKeyCapPixels();
+    const int effective = capPx > 0 ? capPx : AeaQt::kCapDefaultPixels;
+    foreach (KeyButton *button, findChildren<KeyButton *>()) {
+        QFont f = button->font();
+        f.setPixelSize(effective);
+        button->setFont(f);
+    }
+    if (m_chineseWidget)
+        m_chineseWidget->setCapPixels(effective);
+    resizeButton();
 }
 
 void Keyboard::hideEvent(QHideEvent *e)
@@ -286,6 +452,11 @@ void Keyboard::switchSpecialChar()
                                             : QStringLiteral("?123"));
         }
     }
+
+    // 功能键键帽（退格/确认/清空/空格）走 applyKeyLabels 重下发：上面那轮
+    // switchSpecialChar 会把 m_mode.display 回写成 modes 里的空串，不补这一次，
+    // 这几枚键的 tr() 文案就被抹成空白
+    applyKeyLabels();
 }
 
 void Keyboard::setEnglishOnly(bool enabled)
@@ -445,11 +616,12 @@ KeyButton *Keyboard::createButton(QList<KeyButton::Mode> modes)
 }
 
 /// 按底行实际可用宽把键帽字号缩到放得下（不超过 basePx）。
-/// QSS 的 font-size 会覆盖 setFont，所以字号仍走按钮级样式表（ID 选择器同既有口径）。
-/// 可用宽 = 键盘宽 × 份数/总份数 − KeyButton 的 QSS margin 5px×2 − 左右留白 4px×2。
+/// 禁 QSS 之后字号一律走字体对象（原 ID 选择器样式表是 QSS 时代的产物）；
+/// fitKeyFont 按实际键宽下发，放不下才缩，更窄的宿主也不截断。
+/// 可用宽 = 键盘宽 × 份数/总份数 − KeyButton 的 margin 5px×2 − 左右留白 4px×2。
 void Keyboard::fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch)
 {
-    const int avail = width() * stretch / kRow4TotalStretch - 18;
+    const int avail = width() * stretch / qMax(1, m_row4TotalStretch) - 18;
     if (avail <= 0)
         return;
     // 中英键两态文本都量（「en/汉」「汉/en」），取较宽者
@@ -457,7 +629,7 @@ void Keyboard::fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch)
     if (button->mode().key == Qt::Key_Context1)
         texts << QStringLiteral("en/汉") << QStringLiteral("汉/en");
     int px = basePx;
-    for (; px > 12; --px) {
+    for (; px > AeaQt::kCapMinPixels; --px) {
         QFont f = button->font();
         f.setPixelSize(px);
         f.setBold(bold);
@@ -471,28 +643,19 @@ void Keyboard::fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch)
     const QString name = button->mode().key == Qt::Key_Context1
             ? QStringLiteral("langSwitchKey") : QStringLiteral("layoutSwitchKey");
     button->setObjectName(name);
-    const QString rule = QStringLiteral(
-            "AeaQt--KeyButton#%1 { font-size: %2px; font-weight: %3; }")
-            .arg(name).arg(px).arg(bold ? QStringLiteral("bold") : QStringLiteral("normal"));
-    // 基础样式（KeyButton 构造期 DEFAULT_STYLE_SHEET）只记一次，之后每次 resize
-    // 只换本条规则——直接 += 会让样式表随 resize 无限增长
-    QString base = button->property("tkBaseSheet").toString();
-    if (base.isEmpty()) {
-        base = button->styleSheet();
-        button->setProperty("tkBaseSheet", base);
-    }
-    if (button->styleSheet() != base + rule)
-        button->setStyleSheet(base + rule);
+    QFont f = button->font();
+    f.setPixelSize(px);
+    f.setBold(bold);
+    button->setFont(f);
 }
 
 void Keyboard::resizeButton()
 {
-    // 标题栏收起键：.ui 里用 QSS image:url(hideBtn.png)，目标板 Qt 无 PNG 支持时整块空白；
-    // 改为现画图标（keyIcon），QSS 只保留透明底/无边框
+    // 标题栏收起键：禁 QSS 后 flat + 现画图标（keyIcon），命中区与图标尺寸由
+    // updateCloseButton() 按 kCloseButtonSize 统一下发（≥44 触控下限）
     if (QPushButton *closeBtn = ui->btnClose) {
         if (!closeBtn->property("tkIconSet").toBool()) {
-            closeBtn->setStyleSheet(QStringLiteral(
-                "QPushButton { background-color: transparent; border: none; padding: 0px; }"));
+            closeBtn->setFlat(true);
             closeBtn->setIcon(keyIcon(KeyIcon::Hide));
             closeBtn->setProperty("tkIconSet", true);
         }
@@ -573,24 +736,72 @@ ChineseWidget::ChineseWidget(QWidget *parent) :
 
     /* 设置为像素滚动 */
     setHorizontalScrollMode(QListWidget::ScrollPerPixel);
+    /* 竖向也必须 ScrollPerPixel：默认 ScrollPerItem 的量程是「0..(条数−可见条数)」格，
+     * QScroller 按像素算出的甩动距离压进这几格里会被归一化成"要么不动、要么直接到头"
+     * （aerocount 坑 39：用户实测「滚动很奇怪，一下子全都翻过去了」）。 */
+    setVerticalScrollMode(QListWidget::ScrollPerPixel);
+    /* 手势用 TouchGesture 而非 LeftMouseButtonGesture：后者连鼠标按住都当甩动，
+     * 桌面宿主上选候选要按很久才能点中 */
+    QScroller::grabGesture(this, QScroller::TouchGesture);
+    /* 甩动参数：起拖延迟/阈值压到触摸可用，帧率拉满（候选区一屏三五条，
+     * 掉帧会显得"粘手"） */
+    QScrollerProperties prop = QScroller::scroller(this)->scrollerProperties();
+    prop.setScrollMetric(QScrollerProperties::MousePressEventDelay, 0);
+    prop.setScrollMetric(QScrollerProperties::DragStartDistance, 0.001);
+    prop.setScrollMetric(QScrollerProperties::FrameRate, QScrollerProperties::FrameRates::Fps60);
+    QScroller::scroller(this)->setScrollerProperties(prop);
+    /* 拖动期间不误触条目：按下即进拖动态时，抬起不再当 click */
+    viewport()->installEventFilter(this);
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5,0,0))
-    /* 设置鼠标左键拖动 */
-    QScroller::grabGesture(this, QScroller::LeftMouseButtonGesture);
-#endif
-
-    /* 设置样式。条目高度 36px：候选区（标题栏内 candidateContainer）最高 40px，
-     * 原 50px 条目会被底边裁掉一截（悬停/选中蓝底缺底边、文字贴顶）——36px
-     * 整条落进 40px 视口，18pt 文字仍有充裕留白 */
-    setStyleSheet("                                                                           \
-                  QListWidget { outline: none; border:1px solid #00000000; color: black; }    \
-                  QListWidget::Item { width: 50px; height: 36px; }                            \
-                  QListWidget::Item:hover { background: #4395ff; color: white; }              \
-                  QListWidget::item:selected { background: #4395ff; color: black; }           \
-                  QListWidget::item:selected:!active { background: #00000000; color: black; } \
-                  ");
+    /* 配色走 AeaKeyboardStyle 常量表 + palette（禁 QSS）：条目 hover/selected 的
+     * 高亮底与原 QSS #4395ff 同值，文字色同族；绘制由 CandidateItemDelegate 自绘
+     * （见本文件下方），不再靠 QListWidget::Item 选择器 */
+    QPalette pal = palette();
+    pal.setColor(QPalette::Text, AeaQt::candidateInkColor());
+    pal.setColor(QPalette::Highlight, AeaQt::candidateHighlightColor());
+    pal.setColor(QPalette::HighlightedText, AeaQt::candidateHighlightInkColor());
+    pal.setColor(QPalette::Base, AeaQt::candidateIdleFaceColor());
+    setPalette(pal);
+    setAutoFillBackground(false);
+    setItemDelegate(new CandidateItemDelegate(this));
 
     connect(this, SIGNAL(itemClicked(QListWidgetItem *)), this, SLOT(onItemClicked(QListWidgetItem *)));
+}
+
+/// 拖动期间吞掉 mouseRelease：QScroller 已识别为拖动时，抬起不当作条目点击
+/// （否则一甩动就点中一个候选，拼音被提交掉）。
+bool ChineseWidget::eventFilter(QObject *watched, QEvent *e)
+{
+    if (watched == viewport() && e->type() == QEvent::MouseButtonRelease) {
+        QScroller *sc = QScroller::scroller(this);
+        if (sc && sc->state() == QScroller::Dragging)
+            return true;
+    }
+    return QListWidget::eventFilter(watched, e);
+}
+
+/// 候选条目自绘（禁 QSS 后 QListWidget::Item:hover/selected 的替代）：
+/// 圆角高亮底 + 同族文字色，未选中透明底（与原 QSS #00000000 一致）。
+void CandidateItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
+                                  const QModelIndex &index) const
+{
+    QPainter *p = painter;
+    p->setRenderHint(QPainter::Antialiasing, true);
+    const bool selected = option.state & QStyle::State_Selected;
+    const bool hovered = option.state & QStyle::State_MouseOver;
+    if (selected || hovered) {
+        p->save();
+        p->setPen(Qt::NoPen);
+        p->setBrush(selected ? AeaQt::candidateHighlightColor()
+                            : AeaQt::candidateHighlightColor().lighter(115));
+        p->drawRoundedRect(option.rect.adjusted(1, 1, -1, -1), 4, 4);
+        p->restore();
+    }
+    QStyleOptionViewItem opt = option;
+    opt.palette.setColor(QPalette::Text,
+                         selected ? AeaQt::candidateHighlightInkColor()
+                                 : AeaQt::candidateInkColor());
+    QStyledItemDelegate::paint(p, opt, index);
 }
 
 void ChineseWidget::setText(const QString &text)
@@ -637,8 +848,12 @@ void ChineseWidget::onItemClicked(QListWidgetItem *item)
 void ChineseWidget::addOneItem(const QString &text)
 {
     QListWidgetItem *item = new QListWidgetItem(text, this);
+    // 候选条目像素字号：宿主可按字号系数下发（setCapPixels），未下发用模板默认值。
+    // 原 QSS 时代的 setPointSize(18) 是点字号（DPI 相关），禁 QSS 后统一改像素；
+    // 条目宽也改成按 QFontMetrics 实测（原用 pointSize 当宽度代理，与实际渲染不同源）。
+    const int capPx = capPixels() > 0 ? capPixels() : kCandidateFontPixels;
     QFont font;
-    font.setPointSize(18);
+    font.setPixelSize(capPx);
     font.setWeight(QFont::Normal);   // setBold(true) 会被本行覆盖成 Normal，矛盾调用已删
     item->setFont(font);
 
@@ -647,15 +862,31 @@ void ChineseWidget::addOneItem(const QString &text)
     const bool isChinese = QRegularExpression(QStringLiteral("^[\u4E00-\u9FA5]+"))
             .match(text.left(1)).hasMatch();
 
-    int width = font.pointSize();
-    if (isChinese)
-        width += text.count()*font.pointSize()*1.5;
-    else
-        width += text.count()*font.pointSize()*2/3;
+    const QFontMetrics fm(font);
+    const int textWidth = fm.horizontalAdvance(text);
+    const int width = qMax(kCandidateItemMinWidth,
+                           textWidth + 2 * kCandidateItemPadding);
 
     /* 条目高度与 QSS 的 Item height 一致（36px，落进 40px 候选区视口） */
-    item->setSizeHint(QSize(width, 36));
+    item->setSizeHint(QSize(width, kCandidateItemHeight));
     addItem(item);
+}
+
+void ChineseWidget::setCapPixels(int px)
+{
+    if (m_capPixels == px)
+        return;
+    m_capPixels = px;
+    // 已入列的候选条目同步换字号：语言/字号系数切换时不重建列表，
+    // 只改新条目会让同一行候选一半大一半小
+    const int capPx = px > 0 ? px : kCandidateFontPixels;
+    QFont font = this->font();
+    font.setPixelSize(capPx);
+    for (int i = 0; i < count(); ++i) {
+        QListWidgetItem *entry = QListWidget::item(i);
+        if (entry)
+            entry->setFont(font);
+    }
 }
 
 void ChineseWidget::loadChineseLib()

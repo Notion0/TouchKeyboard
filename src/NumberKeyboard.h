@@ -8,6 +8,8 @@
 #include "KeyButton.h"
 #include <QLayout>
 #include <QString>
+class QPainter;
+class QPaintEvent;
 
 namespace AeaQt {
 
@@ -22,6 +24,10 @@ public:
 protected:
     /// @brief 尺寸变化：图标键帽的图标尺寸随键帽重算（构造期尺寸未定会被钉死）
     void resizeEvent(QResizeEvent *e);
+
+    /// @brief 面板自绘（禁 QSS 后 background-color/border-radius 的替代：
+    ///        品牌青底 + 15px 圆角，不描灰边——与 26 键全键盘的既定差异）
+    void paintEvent(QPaintEvent *event) override;
 
 private slots:
     void onButtonPressed(const int &code, const QString &text);

@@ -22,11 +22,11 @@ const QColor kKeyText(51, 51, 51);
 const QColor kKeySubText(120, 120, 120);
 
 const int kKeyboardWidth = 672;
-const int kKeyboardHeight = 360;
+const int kKeyboardHeight = 416;
 const int kCompHeight = 48;
 const int kCandHeight = 56;
 const int kGridTop = kCompHeight + kCandHeight;   // 104
-const int kRowHeight = 64;
+const int kRowHeight = 78;   // 104 + 4*78 = 416 自洽（高宽比 0.619）
 const int kMargin = 4;
 const int kSideWidth = 92;
 const int kMidWidth = 160;

@@ -1,14 +1,13 @@
 #include "KeyButton.h"
+#include "AeaKeyboardStyle.h"
 #include <QDebug>
+#include <QFontMetrics>
+#include <QPainter>
+#include <QPainterPath>
 #include <QRegularExpression>
 
 using namespace AeaQt;
 
-
-const QString DEFAULT_STYLE_SHEET = "AeaQt--KeyButton { background: white; border-radius: 5px;" \
-    "margin: 5px;" \
-    "font-size: 26px; color: black;}" \
-    "AeaQt--KeyButton:pressed { background: #01ddfd }";
 
 KeyButton::Type KeyButton::find(const QString &value)
 {
@@ -66,7 +65,6 @@ void KeyButton::setDisplayContent(const QVariant &content)
     else if (content.type() == QVariant::Icon) {
         const QIcon &icon = content.value<QIcon>();
         this->setIcon(icon);
-        this->setIconSize(QSize(1.2 * width(), 1.2 * height()));
     }
 }
 
@@ -75,7 +73,7 @@ KeyButton::KeyButton(const QList<KeyButton::Mode> modes, QWidget *parent) :
 {
     Q_ASSERT(!modes.isEmpty());
     this->setFocusPolicy(Qt::NoFocus);
-    this->setStyleSheet(DEFAULT_STYLE_SHEET);
+    // 键帽底色/圆角/按下态由 paintEvent 自绘（模板禁 QSS），这里不设样式表
     this->setAutoRepeat(true);
 
     foreach (Mode mode, modes) {
@@ -150,4 +148,56 @@ void KeyButton::switching()
 void KeyButton::onPressed()
 {
     emit pressed(m_mode.key, m_mode.value);
+}
+
+void KeyButton::setCapPixels(int px)
+{
+    if (m_capPixels == px)
+        return;
+    m_capPixels = px;
+    update();
+}
+
+int KeyButton::fitTextPixels(const QRectF &cap) const
+{
+    const int base = m_capPixels > 0 ? m_capPixels : kCapDefaultPixels;
+    const int avail = qMax(0, int(cap.width()) - 2 * kCapTextPadding);
+    QFont f = font();
+    for (int px = base; px > kCapMinPixels; --px) {
+        f.setPixelSize(px);
+        if (QFontMetrics(f).horizontalAdvance(text()) <= avail)
+            return px;
+    }
+    return kCapMinPixels;
+}
+
+void KeyButton::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    // 键帽矩形：内缩 kCapMargin（原 QSS margin: 5px）+ 圆角 kCapRadius
+    const QRectF cap = QRectF(rect()).adjusted(kCapMargin, kCapMargin, -kCapMargin, -kCapMargin);
+    QPainterPath path;
+    path.addRoundedRect(cap, kCapRadius, kCapRadius);
+    p.fillPath(path, isDown() ? keyCapPressedColor() : keyCapFaceColor());
+
+    // 图标键（如大小写）：只画图标，尺寸按键帽的 60% 取，不依赖外部 iconSize
+    if (text().isEmpty() && !icon().isNull()) {
+        const QSize sz(qRound(cap.width() * 0.6), qRound(cap.height() * 0.6));
+        QRect target(QPoint(0, 0), sz);
+        target.moveCenter(QRectF(cap).toRect().center());
+        icon().paint(&p, target, Qt::AlignCenter,
+                     isEnabled() ? QIcon::Normal : QIcon::Disabled,
+                     isDown() ? QIcon::On : QIcon::Off);
+        return;
+    }
+
+    // 文字键帽：像素字号走漏斗（宿主下发 > 模板默认），放不下就逐级缩
+    QFont f = font();
+    f.setPixelSize(fitTextPixels(cap));
+    p.setFont(f);
+    p.setPen(isEnabled() ? keyCapInkColor() : keyCapDisabledInkColor());
+    p.drawText(cap, Qt::AlignCenter, text());
 }

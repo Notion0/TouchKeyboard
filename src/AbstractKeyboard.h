@@ -18,6 +18,9 @@
 #include <QPainter>
 #include <QPixmap>
 
+#include "AeaKeyboardStyle.h"
+#include "KeyButton.h"
+
 namespace AeaQt {
 
 /// 品牌 logo 文本（标题栏显示；两个键盘共用——改此一处即全模板换肤）
@@ -167,19 +170,41 @@ inline QIcon keyIcon(KeyIcon kind, const QColor &color = Qt::black)
     return icon;
 }
 
-/// 面板圆角半径（px）：两键盘 QSS border-radius 与圆角 mask 的唯一来源，
-/// 三处（Keyboard.cpp / NumberKeyboard.cpp / 两处 setMask）必须与此一致
+/// 面板圆角半径（px）：三键盘自绘圆角与圆角 mask 的唯一来源，
+/// 两处 setMask + paintKeyboardPanel 必须与此一致
 constexpr int kCornerRadius = 15;
+
+/// 面板自绘：禁 QSS 之后 `background-color + border-radius + border` 的唯一替代。
+/// 品牌青底 + 圆角；withBorder=true 时另描 1px 灰边（26 键全键盘带边、
+/// 小键盘不带——这是两者既定差异，非遗漏）。
+inline void paintKeyboardPanel(QPainter &p, const QRect &rect, bool withBorder)
+{
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addRoundedRect(QRectF(rect), kCornerRadius, kCornerRadius);
+    p.fillPath(path, brandPanelColor());
+    if (!withBorder)
+        return;
+    // 0.5px 内缩：1px 描边有一半落在 rect 外会被裁掉，四边会缺一半
+    QPainterPath edge;
+    edge.addRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), kCornerRadius, kCornerRadius);
+    QPen pen(panelBorderColor());
+    pen.setWidthF(1.0);
+    p.setPen(pen);
+    p.strokePath(edge, pen);
+}
 
 class AbstractKeyboard : public QWidget
 {
     Q_OBJECT
 public:
     AbstractKeyboard(QWidget *parent = nullptr) : QWidget(parent) {
-        // 面板 QSS 底色（background-color）只在顶层窗口被自动绘制；嵌入主窗作
-        // 子控件后，普通 QWidget 子类必须显式开 WA_StyledBackground 才画 QSS
-        // 背景——否则面板透明只剩键帽（QFrame 面板不受此限，普通 QWidget 面板必设）
+        // 面板底色自绘（paintKeyboardPanel）：这里保留 WA_StyledBackground 只是
+        // 让嵌入主窗作子控件时也能填上 palette 底色（描边/圆角之外的边角由
+        // 圆角 mask 裁掉，与九宫格同款）；禁 QSS 之后不再有背景规则可依赖
         setAttribute(Qt::WA_StyledBackground, true);
+        // 宿主在创建键盘之前下发的键帽像素字号（0 = 未下发，各键盘用自身默认值）
+        m_keyCapPixels = globalKeyCapPixels();
     }
     ~AbstractKeyboard() { }
 
@@ -192,6 +217,19 @@ public:
     virtual bool isChineseMode() const { return false; }
     /// @brief 设置中英态（英文-only 下请求中文会被忽略）
     virtual void setChineseMode(bool chinese) { Q_UNUSED(chinese); }
+
+    /// @brief 键帽像素字号：宿主按自己的字号系数（如 aerocount 的 kFontScale）统一下发，
+    ///        三个键盘一并生效。未下发时各键盘用自己的默认值（26px / 九宫格自绘档）。
+    ///        懒创建的键盘（九宫格）在创建时读进程级默认值，见 setGlobalKeyCapPixels()；
+    ///        已弹出的键盘可逐个调本函数。
+    virtual void setKeyCapPixels(int px);
+    /// @brief 当前生效的键帽像素字号（0 = 未下发）
+    int keyCapPixels() const { return m_keyCapPixels; }
+
+    /// @brief 语言切换后刷新键帽文案：宿主 installTranslator 之后对本类实例调一次
+    ///        （键盘是宿主窗口的长寿子控件，不随页面重建）。changeEvent 收到
+    ///        LanguageChange 时也会自动触发，两条路都通
+    virtual void retranslate() {}
 
 signals:
     /// @brief 用户点了「九宫格/全键盘」布局切换键；由 InputManager 接管实际切换
@@ -212,8 +250,72 @@ public slots:
         QApplication::sendEvent(receiver, &keyRelease);
     }
 
+protected:
+    /// @brief 语言变化事件：自动触发 retranslate()（宿主也可主动调）
+    void changeEvent(QEvent *event) override
+    {
+        if (event->type() == QEvent::LanguageChange)
+            retranslate();
+        QWidget::changeEvent(event);
+    }
+
+    /// @brief 收起时清掉仍处于按下态的键帽
+    /*
+     * 为什么必须有这一段：键帽的按下态用的是 QAbstractButton 内置的 isDown()，
+     * 而「确认」键（小键盘/九宫格都有）的回调里会 clearFocus() 让输入框失焦 →
+     * InputManager::focusChanged → hideKeyboards() 把键盘收起——**此时用户手指
+     * 还按在确认键上**。隐藏的控件不再接收鼠标事件，那一次 MouseButtonRelease
+     * 永远到不了键帽，isDown() 就一直是 true；下次再弹出键盘，那个键就一直
+     * 画着按下色（keyCapPressedColor）。
+     *
+     * 2026-11-16 AeroCount 板上实测：「键盘现在有时会出现点击后页面依然显示在
+     * 某个按键高亮（实际上已经没有高亮了）」。"有时"正是因为只有会自隐藏键盘的
+     * 那几个键（确认/收起）踩得到，普通键的松手事件正常到达。
+     *
+     * 放在 hideEvent/showEvent 而不是 InputManager::hideKeyboards()：三个键盘
+     * （Keyboard / T9Keyboard / NumberKeyboard）都派生自本类，且它们的
+     * hideEvent override 末尾都会调 AbstractKeyboard::hideEvent(e)，所以这两处
+     * 覆盖**所有**显隐路径——包括宿主应用自己 hide()/show() 键盘，不只 InputManager。
+     *
+     * 为什么 show 侧也要清：hide() 对**已隐藏**的控件不再发 HideEvent（实测：
+     * 连续两次 hide，第二次不进 hideEvent），只靠 hide 侧存在"键盘本就在隐藏态、
+     * 键帽却处于按下态"的漏网窗口；show 侧补一次让"弹出来的键盘永不带卡住的键"
+     * 成为不变量，代价是每次弹键遍历一遍键帽（键盘一屏几十枚，可忽略）。
+     */
+    void hideEvent(QHideEvent *event) override
+    {
+        releaseStuckKeys();
+        QWidget::hideEvent(event);
+    }
+
+    void showEvent(QShowEvent *event) override
+    {
+        releaseStuckKeys();
+        QWidget::showEvent(event);
+    }
+
 private:
+    /// @brief 清掉所有处于按下态的键帽（isDown() 为真才动，见 hideEvent 注释）
+    void releaseStuckKeys()
+    {
+        for (QAbstractButton *key : findChildren<QAbstractButton *>()) {
+            if (key->isDown())
+                key->setDown(false);
+        }
+    }
+
+private:
+    int m_keyCapPixels = 0;   // 0 = 未下发（用各键盘自身默认字号）
 };
+
+// 默认实现：把像素字号下发给所有 KeyButton 键帽（26 键全键盘 / 数字小键盘即此口径；
+// 九宫格自绘键帽在 T9Keyboard 里覆盖本函数，另带自己的副标/条目字号）
+inline void AbstractKeyboard::setKeyCapPixels(int px)
+{
+    m_keyCapPixels = px;
+    for (KeyButton *button : findChildren<KeyButton *>())
+        button->setCapPixels(px);
+}
 
 }
 #endif // AEA_ABSTRACT_KEYBOARD_H

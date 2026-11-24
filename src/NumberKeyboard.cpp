@@ -12,9 +12,19 @@ typedef QList<Modes> ModesList;
 
 // 退格图标由 keyIcon() 现画（见 AbstractKeyboard.h：目标板 Qt 无 PNG 支持）
 
-// 面板尺寸：全键盘(990x360)的小弟——标题栏 30px + 3列x4行键帽约 110x65 + 底部动作行 65px，
-// 触控目标远超 48px 下限
-static const QSize kPanelSize(330, 355);
+// 面板尺寸 672×528（原 330×355；用户 2026-11-17「纯数字的小键盘有点小了，尽量放大一点」）：
+// 高 = 标题行 48 + 5 行键帽 96 = 528；宽 = 672 = 屏宽 720 − 48（= main.cpp 的 maxWidth，
+// 恰走上限 continue、永不被钳，圆角 mask 保持构造期值）。26 键全键盘模板原尺寸为
+// 990×300（Keyboard.ui，旧注释「990x360」有误）。键帽行内等分（Ignored + 零 spacing/
+// margins）：行 1-3 每枚 224、行 4（-.0⌫）每枚 168、动作行（清空/确认）每枚 336，
+// 触控目标远超 44px 下限。
+static const QSize kPanelSize(672, 528);
+// 标题行高复用 26 键标题栏口径 AeaQt::kTitleBarHeight（=48）；键帽行高 96 = (528 − 48) / 5
+constexpr int kTitleRowHeight = AeaQt::kTitleBarHeight;
+constexpr int kKeyRowHeight = 96;
+// 高度账：标题行 48 + 5 行键帽 96 = 528，必须与 kPanelSize.height() 对齐
+static_assert(kTitleRowHeight + 5 * kKeyRowHeight == 528,
+              "NumberKeyboard 面板高度账不等于 528");
 
 NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
 {
@@ -27,16 +37,22 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
     // 标题栏：WOWA logo（白粗体 15pt 居中，衬青底）
     auto* logo = new QLabel(brandLogoText(), this);
     logo->setFont(QFont(QStringLiteral("Microsoft YaHei"), 15, QFont::Bold));
-    logo->setStyleSheet(QStringLiteral("color: rgb(255, 255, 255);"));
+    // 标题栏白字（禁 QSS 后 color 的唯一替代：palette WindowText，子孙继承）
+    AeaQt::applyForegroundColor(logo, AeaQt::titleInkColor());
     logo->setAlignment(Qt::AlignCenter);
     logo->setMinimumSize(120, 0);
-    logo->setMaximumSize(150, 34);
+    logo->setFixedHeight(kTitleRowHeight);   // 标题行高 48：与 26 键标题栏同高（AeroCount 已清空 logo 文本，纯装饰青带）
+    logo->setMaximumWidth(150);              // 宽上限 150 保留
     logo->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
     layout->addWidget(logo);
 
     auto createLayout = [&](ModesList list){
         QHBoxLayout *h = new QHBoxLayout;
         h->setSizeConstraint(QLayout::SetNoConstraint);
+        // 零 spacing/margins：Qt 子布局默认约 9px 边距会吃掉行宽，键帽就不足 224/168；
+        // 行内多枚键帽按 Ignored 策略等分整行 672（3 枚→224、4 枚→168）
+        h->setSpacing(0);
+        h->setContentsMargins(0, 0, 0, 0);
 
         foreach (Modes iter, list) {
             KeyButton *button = createButton(iter);
@@ -87,7 +103,9 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
     };
     auto* actionRow = new QHBoxLayout;
     actionRow->setSizeConstraint(QLayout::SetNoConstraint);
+    // 与键行同口径：零 spacing/margins，两枚动作键等分整行 672（各 336）
     actionRow->setSpacing(0);
+    actionRow->setContentsMargins(0, 0, 0, 0);
     foreach (Modes iter, modeListAction) {
         actionRow->addWidget(createButton(iter));
     }
@@ -105,11 +123,8 @@ NumberKeyboard::NumberKeyboard(QWidget *parent) : AbstractKeyboard(parent)
             button->setIconSize(QSize(button->width() / 2, button->height() / 2));
     }
 
-    // 面板与全键盘同款：品牌青底 + 15px 圆角（与全键盘 #frame 规则一致，
-    // 但不描灰边——小键盘面板更干净；键帽由 KeyButton 自带白底黑字 QSS）
-    this->setStyleSheet(
-        QStringLiteral("background-color: %1; border-radius: 15px;")
-            .arg(brandPanelColor().name()));
+    // 面板与全键盘同款：品牌青底 + 15px 圆角，由 paintEvent 自绘
+    // （paintKeyboardPanel，禁 QSS）；不描灰边——小键盘面板更干净
 
     // 真圆角窗口：QSS 圆角只裁内容不裁窗口，四角露底层白底显成方角——
     // 透明背景 + 圆角 mask 从窗口层裁掉（半径与上面 QSS 的 border-radius 一致）
@@ -122,6 +137,14 @@ KeyButton *NumberKeyboard::createButton(QList<KeyButton::Mode> modes)
     button->onReponse(this, SLOT(onButtonPressed(const int&, const QString&)));
     button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     return button;
+}
+
+void NumberKeyboard::paintEvent(QPaintEvent *e)
+{
+    Q_UNUSED(e);
+    QPainter p(this);
+    // 小键盘面板不描灰边（与 26 键全键盘的既定差异）
+    AeaQt::paintKeyboardPanel(p, rect(), false);
 }
 
 void NumberKeyboard::resizeEvent(QResizeEvent *e)

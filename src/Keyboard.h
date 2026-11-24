@@ -8,6 +8,8 @@
 #include "KeyButton.h"
 #include <QLayout>
 #include <QListWidget>
+#include <QStyledItemDelegate>
+#include <QAbstractItemDelegate>
 #include <QHash>
 #include <QPair>
 #include <QString>
@@ -28,6 +30,9 @@ public:
     /// @brief 设置拼音缓冲文本
     void setText(const QString &text);
 
+    /// @brief 候选条目像素字号（宿主按字号系数统一下发；0 = 用模板默认值）
+    void setCapPixels(int px);
+
 signals:
     /// @brief 按键信号（码+文本），供目标行编辑接收
     void pressedChanged(int code, QString text);
@@ -39,6 +44,8 @@ private slots:
 private:
     /// @brief 追加一个候选词
     void addOneItem(const QString &text);
+    /// @brief 候选条目当前像素字号（0 = 模板默认）
+    int capPixels() const { return m_capPixels; }
     /// @brief 加载单字拼音库（资源路径见 TOUCHKBD_PINYIN_DICT）
     void loadChineseLib();
     /// @brief 加载词组库（资源路径见 TOUCHKBD_PINYIN_PHRASE_DICT）
@@ -48,6 +55,20 @@ private:
 
 private:
     QMap<QString, QList<QPair<QString, QString> > > m_data;
+    int m_capPixels = 0;   // 0 = 未下发（用 kCandidateFontPixels）
+
+protected:
+    /// @brief 拖动期间吞掉 mouseRelease（QScroller 已识别为拖动时不当点击）
+    bool eventFilter(QObject *watched, QEvent *e) override;
+};
+
+/// 候选条目自绘 delegate：禁 QSS 后 QListWidget::Item:hover/selected 的替代。
+/// 圆角高亮底 + 同族文字色（取色见 AeaKeyboardStyle.h 的 candidate* 常量）。
+class CandidateItemDelegate : public QStyledItemDelegate {
+public:
+    explicit CandidateItemDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override;
 };
 
 class Keyboard : public AbstractKeyboard
@@ -66,11 +87,18 @@ public:
     bool isChineseMode() const override;
     void setChineseMode(bool chinese) override;
 
+    /// @brief 语言切换后刷新键帽文案（宿主 installTranslator 之后调；changeEvent 也会触发）
+    void retranslate() override;
+    /// @brief 键帽像素字号下发：KeyButton 键帽 + 候选条目字号一并走
+    void setKeyCapPixels(int px) override;
+
 protected:
     /// @brief 尺寸变化：重排按键 + 重算圆角 mask
     void resizeEvent(QResizeEvent *e) override;
     /// @brief 收起：丢弃未提交的拼音缓冲与候选（缓冲跨输入框存活，不清会串台）
     void hideEvent(QHideEvent *e) override;
+    /// @brief 面板自绘（禁 QSS 后 background/border-radius/border 的替代）
+    void paintEvent(QPaintEvent *e) override;
 
 private slots:
     /// @brief 大小写锁定切换
@@ -92,6 +120,12 @@ private:
 
     /// @brief 按容器尺寸重算按键几何
     void resizeButton();
+    /// @brief 底两行 stretch 与总份数：功能键统一规格表的基准宽换算而来
+    void applyRowStretches();
+    /// @brief 键帽文案（tr()）单一出处：构造、切符号页、语言切换都走这里
+    void applyKeyLabels();
+    /// @brief 标题栏收起钮：图标/命中区/尺寸
+    void updateCloseButton();
     void fitKeyFont(KeyButton *button, int basePx, bool bold, int stretch);
 
     /// @brief 按 m_isChinese 刷新候选区可见性（中文态常驻，英文态收起让位标题栏）
@@ -104,6 +138,11 @@ private:
     bool m_isSpecialChar = false; // 当前是否符号/数字页（驱动左下角切换键键帽文案）
     ChineseWidget *m_chineseWidget;
     QString m_bufferText;
+    // 底两行布局与总份数（功能键统一宽换算后写回这里；fitKeyFont 按它算可用宽）
+    QHBoxLayout *m_row3Layout = nullptr;
+    QHBoxLayout *m_row4Layout = nullptr;
+    int m_row3TotalStretch = 0;
+    int m_row4TotalStretch = 0;
 };
 
 }
