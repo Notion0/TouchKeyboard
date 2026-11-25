@@ -7,6 +7,8 @@
 #include <QWidget>
 #include <QAbstractSpinBox>
 #include <QLineEdit>
+#include <QTime>
+#include <QTimeEdit>
 #include <QDebug>
 #include <QKeyEvent>
 #include <QColor>
@@ -61,6 +63,141 @@ inline bool selectAllNumericContent(QWidget *focusWidget)
         return true;
     }
     return false;
+}
+
+/// 时分秒（HH:mm:ss）触屏连续输入过滤器（自 aerocount 沉淀，2026-11-25）：
+/// 点击或获焦后默认全选；全选状态下首次键入数字修改最左第 1 位，再次键入自左向右
+/// 依次覆盖 6 位（如输入 000005 → 00:00:05），每输入一位自动高亮下一待输入位；
+/// 小时十位钳制 0..2、分/秒十位钳制 0..5；退格左退清零，清空/Delete 重置为 00:00:00 并全选。
+/// ⚠ 必须同时 installEventFilter 到 QTimeEdit 本体与内部 QLineEdit：QTimeEdit 经
+/// focusProxy 代理焦点时 QApplication::focusWidget() 返回 QTimeEdit 本体，只挂内部
+/// QLineEdit 会漏拦截触摸键盘发来的 KeyPress（导致全选后键入任何数字均被判无效）。
+class DurationInputFilter final : public QObject
+{
+public:
+    DurationInputFilter(QTimeEdit *edit, QLineEdit *lineEdit)
+        : QObject(edit)
+        , m_edit(edit)
+        , m_lineEdit(lineEdit)
+    {
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (!m_edit || !m_lineEdit)
+            return QObject::eventFilter(watched, event);
+
+        if (event->type() == QEvent::FocusIn
+            || event->type() == QEvent::MouseButtonPress) {
+            m_freshFocus = true;
+            m_cursorPos = 0;
+            return QObject::eventFilter(watched, event);
+        }
+
+        if (event->type() != QEvent::KeyPress)
+            return QObject::eventFilter(watched, event);
+
+        const auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const int key = keyEvent->key();
+        const QString txt = keyEvent->text();
+
+        QChar digitChar;
+        if (txt.size() == 1 && txt.at(0).isDigit()) {
+            digitChar = txt.at(0);
+        } else if (key >= Qt::Key_0 && key <= Qt::Key_9) {
+            digitChar = QLatin1Char(char('0' + (key - Qt::Key_0)));
+        }
+
+        auto applyBuffer = [this](bool selectAllAfter) {
+            const int hh = qBound(0, m_buf.mid(0, 2).toInt(), 23);
+            const int mm = qBound(0, m_buf.mid(2, 2).toInt(), 59);
+            const int ss = qBound(0, m_buf.mid(4, 2).toInt(), 59);
+            m_buf = QStringLiteral("%1%2%3")
+                        .arg(hh, 2, 10, QLatin1Char('0'))
+                        .arg(mm, 2, 10, QLatin1Char('0'))
+                        .arg(ss, 2, 10, QLatin1Char('0'));
+            m_edit->setTime(QTime(hh, mm, ss));
+            if (selectAllAfter) {
+                m_lineEdit->selectAll();
+            } else if (m_cursorPos < 6) {
+                // "HH:mm:ss" 中第 0..5 位数字对应的字符下标，高亮下一待输入位
+                static const int kDigitIndex[6] = {0, 1, 3, 4, 6, 7};
+                m_lineEdit->setSelection(kDigitIndex[m_cursorPos], 1);
+            } else {
+                m_lineEdit->deselect();
+                m_lineEdit->setCursorPosition(m_lineEdit->text().size());
+            }
+        };
+
+        if (!digitChar.isNull()) {
+            if (m_freshFocus || m_cursorPos >= 6) {
+                m_buf = QStringLiteral("000000");
+                m_cursorPos = 0;
+                m_freshFocus = false;
+            }
+            if (m_cursorPos == 0 && digitChar > QLatin1Char('2'))
+                digitChar = QLatin1Char('2');
+            else if ((m_cursorPos == 2 || m_cursorPos == 4)
+                     && digitChar > QLatin1Char('5'))
+                digitChar = QLatin1Char('5');
+            m_buf[m_cursorPos] = digitChar;
+            ++m_cursorPos;
+            applyBuffer(false);
+            return true;
+        }
+        if (key == Qt::Key_Backspace) {
+            if (m_freshFocus) {
+                m_buf = QStringLiteral("000000");
+                m_cursorPos = 0;
+                m_freshFocus = true;
+                applyBuffer(true);
+                return true;
+            }
+            if (m_cursorPos > 0) {
+                --m_cursorPos;
+                m_buf[m_cursorPos] = QLatin1Char('0');
+            }
+            applyBuffer(false);
+            return true;
+        }
+        if (key == Qt::Key_Clear || key == Qt::Key_Delete) {
+            m_buf = QStringLiteral("000000");
+            m_cursorPos = 0;
+            m_freshFocus = true;
+            applyBuffer(true);
+            return true;
+        }
+        if (key == Qt::Key_Period || txt == QLatin1String(".")) {
+            return true;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QTimeEdit *m_edit = nullptr;
+    QLineEdit *m_lineEdit = nullptr;
+    QString m_buf = QStringLiteral("000000");
+    int m_cursorPos = 0;
+    bool m_freshFocus = true;
+};
+
+/// @brief 为 QTimeEdit（HH:mm:ss）启用触屏全选 + 自左向右连续数字输入，并打上 numericInput
+///        属性以默认弹出九宫格数字键盘（T9Keyboard::Digits）。幂等，可安全重复调用。
+inline void setupDurationEdit(QTimeEdit *edit)
+{
+    if (!edit)
+        return;
+    edit->setProperty("numericInput", true);
+    if (QLineEdit *lineEdit = edit->findChild<QLineEdit *>()) {
+        lineEdit->setProperty("numericInput", true);
+        if (!edit->property("aeaDurationFilterInstalled").toBool()) {
+            edit->setProperty("aeaDurationFilterInstalled", true);
+            auto *filter = new DurationInputFilter(edit, lineEdit);
+            edit->installEventFilter(filter);
+            lineEdit->installEventFilter(filter);
+        }
+    }
 }
 
 /// 圆角窗口遮罩：QSS 的 border-radius 只裁内容不裁窗口，定角会露出底层内容显成方角。
@@ -272,8 +409,8 @@ protected:
      * 某个按键高亮（实际上已经没有高亮了）」。"有时"正是因为只有会自隐藏键盘的
      * 那几个键（确认/收起）踩得到，普通键的松手事件正常到达。
      *
-     * 放在 hideEvent/showEvent 而不是 InputManager::hideKeyboards()：三个键盘
-     * （Keyboard / T9Keyboard / NumberKeyboard）都派生自本类，且它们的
+     * 放在 hideEvent/showEvent 而不是 InputManager::hideKeyboards()：两个键盘
+     * （Keyboard / T9Keyboard）都派生自本类，且它们的
      * hideEvent override 末尾都会调 AbstractKeyboard::hideEvent(e)，所以这两处
      * 覆盖**所有**显隐路径——包括宿主应用自己 hide()/show() 键盘，不只 InputManager。
      *

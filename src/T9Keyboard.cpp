@@ -1,5 +1,6 @@
 #include "T9Keyboard.h"
 
+#include <QDateTimeEdit>
 #include <QFontMetrics>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -511,6 +512,13 @@ void T9Keyboard::setMode(Mode mode)
     applyMode();
 }
 
+void T9Keyboard::restoreTextMode()
+{
+    if (m_mode == Chinese || m_mode == English)
+        return;
+    setMode(m_englishOnly ? English : m_textMode);
+}
+
 void T9Keyboard::applyMode()
 {
     static const char *const groups[10] = {
@@ -602,7 +610,17 @@ void T9Keyboard::commitText(const QString &text)
     // 已是新字段，不能当场判断，只能在提交这一刻记下
     const QLineEdit *target = qobject_cast<const QLineEdit *>(QApplication::focusWidget());
     m_lastTargetPassword = target && target->echoMode() == QLineEdit::Password;
-    onKeyPressed(text == QLatin1String(" ") ? int(Qt::Key_Space) : int(Qt::Key_unknown), text);
+    int keyCode = int(Qt::Key_unknown);
+    if (text == QLatin1String(" ")) {
+        keyCode = int(Qt::Key_Space);
+    } else if (text.size() == 1) {
+        const ushort uc = text.at(0).unicode();
+        if (uc >= '0' && uc <= '9')
+            keyCode = int(Qt::Key_0) + (uc - '0');
+        else if (uc == '.')
+            keyCode = int(Qt::Key_Period);
+    }
+    onKeyPressed(keyCode, text);
     updateEcho();
 }
 
@@ -641,10 +659,18 @@ void T9Keyboard::onKey(int id)
     case KeyClear: {
         resetComposition();
         QWidget *w = QApplication::focusWidget();
-        if (auto *edit = qobject_cast<QLineEdit *>(w))
+        auto *spin = qobject_cast<QAbstractSpinBox *>(w);
+        if (!spin && qobject_cast<QLineEdit *>(w))
+            spin = qobject_cast<QAbstractSpinBox *>(w->parentWidget());
+        if (qobject_cast<QDateTimeEdit *>(spin)) {
+            onKeyPressed(Qt::Key_Clear, QString());
+        } else if (spin) {
+            spin->selectAll();
+        } else if (auto *edit = qobject_cast<QLineEdit *>(w)) {
             edit->clear();
-        else if (w && w->inherits("QTextEdit"))
+        } else if (w && w->inherits("QTextEdit")) {
             QMetaObject::invokeMethod(w, "clear");
+        }
         updateEcho();
         return;
     }

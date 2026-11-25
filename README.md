@@ -2,7 +2,7 @@
 
 > Qt Widgets 5.15 / 6.x 双版本 / C++11 / MSVC·GCC 通吃
 
-文本键盘两种布局并存（26 键全键盘 / 九宫格 T9，运行期一键切换）+ 数字小键盘 + 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
+文本键盘两种布局并存（26 键全键盘 / 九宫格 T9，运行期一键切换；纯数字输入统一走九宫格数字模式 `T9Keyboard::Digits`，旧独立 `NumberKeyboard` 已移除）+ 全局 InputManager。Qt Widgets（5.15 与 6.x 双版本编译验证）、C++11、MSVC(2019)/GCC 通吃。
 从 PressureMonitor 项目抽出（2026-09-24），两键盘形态以生产巡检后的稳定版为准；现同时供 PressureMonitor（Qt 5.15 线）与 PUPSIT（Qt 6 线）两个宿主使用。
 
 ## 30 秒接入
@@ -21,7 +21,7 @@
    `focusChanged(nullptr)` 收起 → 主窗重新激活还原输入框焦点 → 再弹，形成无限
    show/hide 拉锯（界面一直闪、键盘位置飘忽）；挂子控件从结构上根除。代价：键盘
    不浮出宿主窗口边界（宿主是全屏主窗口时无感知）。
-3. 给**纯数字**输入框打动态属性（决定弹小键盘还是全键盘）：
+3. 给**纯数字**输入框打动态属性（决定弹九宫格数字模式 `T9Keyboard::Digits` 还是文本键盘）：
    - `.ui` 里：
      ```xml
      <property name="numericInput" stdset="0">
@@ -53,19 +53,36 @@
 
 ## 行为参考
 
-| | 全键盘 | 数字小键盘 |
+| | 文本键盘（26 键全键盘 / 九宫格 T9） | 数字模式（`T9Keyboard::Digits`） |
 |---|---|---|
-| 大小 | 990×300（标题栏 40 + 4 行键） | 672×528（标题栏 48 + 5 行 96：4 键行 + 动作行） |
-| 弹出条件 | 焦点进入任意 QLineEdit/QTextEdit | 同上且 `numericInput==true`（两键盘互斥） |
+| 大小 | 全键盘 990×300 / 九宫格 672×416 | 672×416（复用九宫格 T9，直达数字页） |
+| 弹出条件 | 焦点进入任意 QLineEdit/QTextEdit | 同上且 `numericInput==true`（与文本模式互斥） |
 | 弹出时 | — | **整选数值段**：首键即替换旧值；spinbox 只选数字不含单位；再点同一框重新整选（自 aerocount 合回） |
-| 提交 | **回车**键（editingFinished + 失焦 + 收起） | **确认**键（同语义；小键盘无回车键必须有） |
-| 清空 | 底行**清空**键（清拼音缓冲 + 清空输入框） | 底行**清空**键（清空输入框） |
-| 收起 | 点击非输入区 / 失焦 / 标题栏关闭钮 | 点击非输入区 / 失焦 / 确认 |
-| 中文 | 中/英切换（**空格左侧键帽「汉/en」大字状态标识**点击即切）+ 拼音候选行（需字典，见下） | 无 |
-| 位置 | 输入框下方，越界在**宿主窗口矩形内**上翻/钳制 | 同 |
+| 提交 | **回车 / 确认**键（editingFinished + 失焦 + 收起） | **确认**键（同语义） |
+| 清空 | **清空**键（清拼音缓冲 + 清空输入框） | **清空**键（`QDateTimeEdit` 发 `Key_Clear`、普通 spinbox 整选、行编辑清空） |
+| 收起 | 点击非输入区 / 失焦 / 标题栏关闭钮 / 确认 | 点击非输入区 / 失焦 / 确认 |
+| 中文 | 中/英切换 + 拼音候选行（需字典，见下） | 左侧「拼音/英文」键可手动切回文本态 |
+| 位置 | 输入框下方，水平居中于宿主窗，越界在**宿主窗口矩形内**上翻/钳制 | 同 |
 
 按键统一走 `AbstractKeyboard::onKeyPressed` 的 QKeyEvent 通道发到焦点控件；两个键盘是宿主
 窗口的无焦点子控件（子控件本身不抢焦点），点键不抢焦点、不改变应用激活态。
+
+## 时分秒连续输入（`AeaQt::setupDurationEdit`，2026-11-25 沉淀）
+
+触摸屏不适合在 `QTimeEdit`（`HH:mm:ss`）上精细点选某一位数字，而 Qt 默认全选状态对连续键入不友好。模板在 `src/AbstractKeyboard.h` 提供现成的 `AeaQt::DurationInputFilter` 与一键配置函数 `AeaQt::setupDurationEdit(QTimeEdit *)`：
+
+```cpp
+#include "AbstractKeyboard.h"
+// 对任意 HH:mm:ss 的 QTimeEdit 调用一次即可（幂等）：
+AeaQt::setupDurationEdit(timeEdit);
+```
+
+行为与实现要点：
+- **默认弹九宫格数字键盘**：自动为 `QTimeEdit` 及其内部 `QLineEdit` 设 `numericInput=true`。
+- **点击全选 + 自左向右连续覆盖**：点击/获焦后全选；首次键入数字从最左第 1 位开始改写（其余位清零），再次键入依次填入 6 位并自动高亮下一待输入位（例如输入 `000005` → `00:00:05`）；小时十位钳制 `0..2`、分/秒十位钳制 `0..5`；退格左退清零；`清空` 键（`Key_Clear`）重置为 `00:00:00` 并恢复全选；小数点键自动忽略。
+- **关键坑（双挂载 + 真实键码）**：
+  1. `QTimeEdit` 通过 `focusProxy` 代理焦点时，`QApplication::focusWidget()` 返回的是 `QTimeEdit` 本体而非内部 `QLineEdit`，因此过滤器必须同时 `installEventFilter` 到 `QTimeEdit` 本体与内部 `QLineEdit`；
+  2. `T9Keyboard::commitText()` 已为 `0`–`9` 与 `.` 发送真实 `Qt::Key_0..Qt::Key_9` / `Qt::Key_Period`（而非 `Qt::Key_unknown`），`KeyClear` 对 `QDateTimeEdit` 发送 `Qt::Key_Clear`。
 
 ## 中文输入（内置能力，非可选项）
 
@@ -123,14 +140,13 @@ TouchKeyboard/
 ├── TouchKeyboard.pri        qmake 接入点（SOURCES/HEADERS/FORMS/RESOURCES）
 ├── README.md
 ├── src/
-│   ├── AbstractKeyboard.h   基类：按键分发 + 品牌常量
+│   ├── AbstractKeyboard.h   基类：按键分发 + 品牌常量 + 数值整选 + DurationInputFilter/setupDurationEdit
 │   ├── KeyButton.h/.cpp     自绘键帽（多形态/长按连发/图标）
 │   ├── TouchKbdDict.h       三字典路径宏 + 打开兜底（26 键与 T9 共用）
 │   ├── Keyboard.h/.cpp/.ui  26 键全键盘
-│   ├── T9Keyboard.h/.cpp    九宫格文本键盘
+│   ├── T9Keyboard.h/.cpp    九宫格键盘（中文/英文/数字 Digits/符号四模式，统一承接数字输入）
 │   ├── T9PinyinEngine.h/.cpp 九宫格拼音引擎（纯逻辑，后台加载）
-│   ├── NumberKeyboard.h/.cpp 数字小键盘（0-9/-/./退格 + 清空/确认）
-│   └── InputManager.h/.cpp  选弹/定位/收起、布局切换（numericInput 判据在这）
+│   └── InputManager.h/.cpp  选弹/定位/收起、布局切换（numericInput 统一直达 T9Keyboard::Digits）
 ├── tests/t9/                T9 引擎单测
 └── resources/
     ├── TouchKeyboard.qrc    图标资源（:/touchkeyboard/icons/ 前缀）
@@ -161,7 +177,6 @@ TouchKeyboard/
 | Qt5 写法 | Qt6 写法 | 位置 |
 |---|---|---|
 | `#include <QRegExp>` + `QRegExp::exactMatch/indexIn/cap/matchedLength` | `#include <QRegularExpression>` + anchored 模式 `.match().hasMatch()` / `globalMatch()` + `captured()/capturedLength()` | KeyButton.cpp、Keyboard.cpp |
-| `layout->setMargin(0)` | `layout->setContentsMargins(0, 0, 0, 0)` | NumberKeyboard.cpp |
 | `font.setWeight(50)`（Qt5 0-99 制，=Normal） | `font.setWeight(QFont::Normal)` | Keyboard.cpp |
 | `QTextStream::setCodec("UTF-16")` | `in.setEncoding(QStringConverter::Encoding::Utf16)`（include 与调用均以 `QT_VERSION >= 6` 守卫，5.15 回落 `setCodec`） | Keyboard.cpp |
 | 缺 `QFile`/`QRegularExpression` include（Qt5 传递包含） | 显式补上 | Keyboard.cpp、KeyButton.cpp |

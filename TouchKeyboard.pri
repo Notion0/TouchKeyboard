@@ -1,4 +1,4 @@
-# TouchKeyboard.pri —— 触摸键盘模板：文本键盘两种布局（26 键全键盘 / 九宫格 T9）+ 数字小键盘 + InputManager
+# TouchKeyboard.pri —— 触摸键盘模板：文本键盘两种布局（26 键全键盘 / 九宫格 T9，数字输入统一走 T9Keyboard::Digits）+ InputManager
 #
 # 宿主工程用法（.pro 内）：
 #   include(../TouchKeyboard/TouchKeyboard.pri)      # 相对路径（模板放宿主同级目录时最省事）
@@ -22,7 +22,6 @@ HEADERS += \
     $$TOUCHKBD_ROOT/src/Keyboard.h \
     $$TOUCHKBD_ROOT/src/T9PinyinEngine.h \
     $$TOUCHKBD_ROOT/src/T9Keyboard.h \
-    $$TOUCHKBD_ROOT/src/NumberKeyboard.h \
     $$TOUCHKBD_ROOT/src/InputManager.h
 
 SOURCES += \
@@ -30,7 +29,6 @@ SOURCES += \
     $$TOUCHKBD_ROOT/src/Keyboard.cpp \
     $$TOUCHKBD_ROOT/src/T9PinyinEngine.cpp \
     $$TOUCHKBD_ROOT/src/T9Keyboard.cpp \
-    $$TOUCHKBD_ROOT/src/NumberKeyboard.cpp \
     $$TOUCHKBD_ROOT/src/InputManager.cpp
 
 FORMS += $$TOUCHKBD_ROOT/src/Keyboard.ui

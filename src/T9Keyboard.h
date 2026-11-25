@@ -100,6 +100,12 @@ public:
     bool isChineseMode() const override;
     void setChineseMode(bool chinese) override;
 
+    /// @brief 切换输入模式（供 InputManager 在 numericInput 字段直达 Digits 页）
+    void setMode(Mode mode);
+    Mode mode() const { return m_mode; }
+    /// @brief 若当前停留在数字/符号页，恢复到上次文本模式（中文/英文）
+    void restoreTextMode();
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -118,7 +124,6 @@ private:
     T9Key *addKey(int id);
     void layoutKeys();
     void applyMode();
-    void setMode(Mode mode);
 
     void onKey(int id);
     void onDigit(int digit);

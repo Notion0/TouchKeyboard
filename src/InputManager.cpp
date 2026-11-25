@@ -1,6 +1,5 @@
 #include "Keyboard.h"
 #include "T9Keyboard.h"
-#include "NumberKeyboard.h"
 #include "InputManager.h"
 #include <QApplication>
 #include <QAbstractSpinBox>
@@ -39,9 +38,7 @@ void InputManager::Init(QWidget *parent)
     // 收起键盘，焦点回输入框又弹出，形成 show/hide 拉锯（界面一直闪、位置飘忽）。
     // 挂父后键盘是主窗口拥有的工具窗，显示不改变应用激活态，拉锯根除
     keyboard = new AeaQt::Keyboard(parent);
-    numberKeyboard = new AeaQt::NumberKeyboard(parent);
     prepareKeyboard(keyboard);
-    prepareKeyboard(numberKeyboard);
 
     // Init 前已选了九宫格（setTextLayout 先于 Init 调用）：现在建
     if (m_layout == T9)
@@ -143,7 +140,7 @@ bool InputManager::isKeyboardWidget(QWidget* w) const
     if (!w)
         return false;
 
-    const AeaQt::AbstractKeyboard *kbs[] = {keyboard, t9Keyboard, numberKeyboard};
+    const AeaQt::AbstractKeyboard *kbs[] = {keyboard, t9Keyboard};
     for (const AeaQt::AbstractKeyboard *kb : kbs) {
         if (kb && (w == kb || kb->isAncestorOf(w)))
             return true;
@@ -152,20 +149,19 @@ bool InputManager::isKeyboardWidget(QWidget* w) const
 }
 
 /**
- * 两个键盘一并收起
+ * 所有键盘一并收起
  */
 void InputManager::hideKeyboards()
 {
     keyboard->hide();
     if (t9Keyboard)
         t9Keyboard->hide();
-    numberKeyboard->hide();
     currentInput = nullptr;
 }
 
 /**
  * 显示键盘（核心函数）
- * - 按 numericInput 属性选全键盘/小键盘
+ * - 按 numericInput 属性选九宫格数字模式 / 文本键盘
  * - 负责定位 + 边界处理 + 显示
  */
 void InputManager::showKeyboard(QWidget* now)
@@ -180,15 +176,28 @@ void InputManager::showKeyboard(QWidget* now)
         qobject_cast<const QAbstractSpinBox*>(holder->parentWidget()))
         holder = holder->parentWidget();
 
-    AeaQt::AbstractKeyboard *text = textKeyboard();   // 26 键或九宫格（按当前布局）
-    AeaQt::AbstractKeyboard *target = holder->property("numericInput").toBool()
-        ? static_cast<AeaQt::AbstractKeyboard*>(numberKeyboard)
-        : text;
+    const bool numericMode = holder->property("numericInput").toBool();
+    AeaQt::AbstractKeyboard *target = nullptr;
+    if (numericMode) {
+        ensureT9Keyboard();
+        target = t9Keyboard ? static_cast<AeaQt::AbstractKeyboard *>(t9Keyboard)
+                            : textKeyboard();
+    } else {
+        target = textKeyboard();
+    }
 
+    if (target == t9Keyboard && t9Keyboard) {
+        if (numericMode)
+            t9Keyboard->setMode(AeaQt::T9Keyboard::Digits);
+        else
+            t9Keyboard->restoreTextMode();
+    }
+
+    AeaQt::AbstractKeyboard *text = textKeyboard();   // 26 键或九宫格（按当前布局）
     // 英文-only 字段（密码等仅允许 ASCII）：文本键盘停靠英文态，且中/英切换键置灰。
     // 不禁的话触摸键盘切中文后，拼音候选能点选却过不了字段的 validator——
-    // 表现为"中文能显示但不能选中写入"。数字小键盘本就无中文态，无需处理
-    if (target == text)
+    // 表现为"中文能显示但不能选中写入"。数字模式本就无中文态，无需处理
+    if (!numericMode && target == text)
         text->setEnglishOnly(holder->property("asciiOnly").toBool());
 
     // 如果已经是当前输入框且目标键盘已显示，则不重复处理
@@ -201,14 +210,13 @@ void InputManager::showKeyboard(QWidget* now)
     keyboard->setVisible(target == keyboard);
     if (t9Keyboard)
         t9Keyboard->setVisible(target == t9Keyboard);
-    numberKeyboard->setVisible(target == numberKeyboard);
 
-    // 数字小键盘开面板前整选数值段（口径见 AbstractKeyboard.h selectAllNumericContent）：
+    // 数字模式开面板前整选数值段（口径见 AbstractKeyboard.h selectAllNumericContent）：
     // 第一个按键即替换旧值，退格一次删完整段数字——不整选时按键按 QLineEdit 光标语义
     // 插入，光标又停在数值末尾/后缀之前，表现为「数字越拼越长」
     // 排到当前事件之后：点击弹出时本函数在 eventFilter（mousePress 之前）里被调，
     // 同步整选会被随后 QLineEdit::mousePressEvent 重置成光标
-    if (target == numberKeyboard) {
+    if (numericMode) {
         QPointer<QWidget> w(now);
         QTimer::singleShot(0, this, [w] { selectAllNumericContent(w); });
     }
@@ -310,10 +318,16 @@ bool InputManager::eventFilter(QObject *obj, QEvent *event)
             widget->inherits("QTextEdit") ||
             widget->inherits("QPlainTextEdit"))
         {
-            // 已为该框弹出的小键盘（可见且 currentInput 正是本框）：showKeyboard 对
+            // 已为该框弹出的九宫格数字模式（可见且 currentInput 正是本框）：showKeyboard 对
             // 「同输入+同键盘」直接早退，这里补一次整选——重复点击该框即整段重输。
             // 整选排到本次鼠标事件之后：QLineEdit 自己的 mousePress 会把选区重置成光标
-            const bool reselectForOpen = numberKeyboard->isVisible()
+            const QWidget *holder = widget;
+            if (!holder->property("numericInput").isValid()
+                && qobject_cast<const QAbstractSpinBox *>(holder->parentWidget())) {
+                holder = holder->parentWidget();
+            }
+            const bool reselectForOpen = t9Keyboard && t9Keyboard->isVisible()
+                                         && holder->property("numericInput").toBool()
                                          && currentInput == widget;
             showKeyboard(widget);
             if (reselectForOpen) {

@@ -1,6 +1,6 @@
 // InputManager.h
 // 输入管理单例：全局事件过滤，行编辑获得焦点时弹出对应键盘——
-// numericInput 动态属性为真弹数字小键盘（0-9/./-/退格），否则弹文本键盘；
+// numericInput 动态属性为真弹九宫格数字模式（T9Keyboard::Digits），否则弹文本键盘；
 // 文本键盘有两种布局并存：26 键全键盘 Keyboard 与九宫格 T9Keyboard，
 // 由 setTextLayout() 设默认、键盘上的「九宫格/全键盘」键运行期切换。
 // 失焦或点击非输入区自动收起。
@@ -25,7 +25,6 @@
 
 namespace AeaQt {
 class T9Keyboard;
-class NumberKeyboard;
 }
 
 using namespace AeaQt;
@@ -81,8 +80,7 @@ private:
     void prepareKeyboard(AeaQt::AbstractKeyboard *kb);
 
     AeaQt::Keyboard *keyboard = nullptr;          // 26 键全键盘
-    AeaQt::T9Keyboard *t9Keyboard = nullptr;      // 九宫格（懒创建）
-    AeaQt::NumberKeyboard *numberKeyboard = nullptr;
+    AeaQt::T9Keyboard *t9Keyboard = nullptr;      // 九宫格（含数字模式，懒创建）
     QWidget *mainWidget = nullptr;
     QWidget *currentInput = nullptr;
     TextLayout m_layout = Qwerty;
