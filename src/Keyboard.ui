@@ -174,18 +174,6 @@ color: rgb(255, 255, 255);</string>
          <property name="focusPolicy">
           <enum>Qt::NoFocus</enum>
          </property>
-         <property name="styleSheet">
-          <string notr="true">QPushButton {
-    /* 按钮背景完全透明 */
-    background-color: transparent;
-    /* 去除按钮边框 */
-    border: none;
-    /* 让图标填充整个按钮区域 */
-    padding: 0px;
-    /* 图标居中并拉伸至按钮大小 */
-    image: url(:/touchkeyboard/icons/hideBtn.png);
-}</string>
-         </property>
          <property name="text">
           <string/>
          </property>
