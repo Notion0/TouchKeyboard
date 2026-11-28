@@ -27,7 +27,7 @@ constexpr int kTitleHeight = 48;    ///< 顶部标题栏（含 44px 收起钮）
 constexpr int kNavHeight = 44;      ///< 年月导航栏
 constexpr int kBottomHeight = 44;   ///< 底栏（今天 / 取消）
 constexpr int kStackHeight = kPanelHeight - kTitleHeight - kNavHeight - kBottomHeight;  // 308
-constexpr int kWeekdayHeight = 30;  ///< 星期行
+constexpr int kWeekdayHeight = 28;  ///< 星期行（28 + 6×46 + 下边距 4 = 堆栈高 308）
 constexpr int kDayCellHeight = (kStackHeight - kWeekdayHeight) / 6;   ///< 46 ≥44 触控红线
 constexpr int kPanelRadius = 12;    ///< 面板圆角（同心圆角阶梯：卡片档）
 constexpr int kCellRadius = 8;      ///< 格位圆角（按钮档）
@@ -81,8 +81,9 @@ void PickerButton::setMuted(bool on)
 
 void PickerButton::paintEvent(QPaintEvent* event)
 {
-    QPushButton::paintEvent(event);   // 先让基类出底色/边框（本类未设自动填充，基本透明）
-
+    Q_UNUSED(event);
+    // 不调 QPushButton::paintEvent：Fusion 会先画一层按钮面板（底 + 边框），
+    // 与这里的自绘格位叠成双重框。KeyButton 同口径（全自绘、不走基类）
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
@@ -90,14 +91,60 @@ void PickerButton::paintEvent(QPaintEvent* event)
     const bool down = isDown();
     const bool hover = underMouse() && enabled && !down;
 
+    // 标题栏收起钮：直接摆键盘同款矢量图标（标题栏白字色），不画任何文字
+    if (m_role == Role::Hide) {
+        const int iconS = 24;
+        keyIcon(KeyIcon::Hide, titleInkColor()).paint(
+            &p, QRect(rect().center().x() - iconS / 2, rect().center().y() - iconS / 2,
+                      iconS, iconS));
+        return;
+    }
+
+    // 导航钮的矢量箭头（« ‹ › »）：既画矢量也不画字符——字符在缺字形平台上是豆腐块，
+    // 双画则显成「箭头套箭头」
+    const QString t = text();
+    const bool isArrow = (t == QStringLiteral("«") || t == QStringLiteral("‹")
+                          || t == QStringLiteral("›") || t == QStringLiteral("»"));
+    if (isArrow) {
+        if (down || hover) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(down ? keyCapPressedMutedColor() : keyCapFunctionFaceColor());
+            p.drawRoundedRect(rect().adjusted(3, 3, -3, -3), kCellRadius, kCellRadius);
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(enabled ? keyCapInkColor() : keyCapDisabledInkColor());
+        const bool right = (t == QStringLiteral("›") || t == QStringLiteral("»"));
+        const bool dbl = (t == QStringLiteral("«") || t == QStringLiteral("»"));
+        const qreal cx = rect().center().x();
+        const qreal cy = rect().center().y();
+        const qreal s = 5.0;
+        for (int i = 0; i < (dbl ? 2 : 1); ++i) {
+            const qreal off = dbl ? (i == 0 ? -4.0 : 4.0) : 0.0;
+            const qreal x = cx + (right ? -off : off);
+            QPainterPath tri;
+            if (right) {
+                tri.moveTo(x - s, cy - s);
+                tri.lineTo(x + s, cy);
+                tri.lineTo(x - s, cy + s);
+            } else {
+                tri.moveTo(x + s, cy - s);
+                tri.lineTo(x - s, cy);
+                tri.lineTo(x + s, cy + s);
+            }
+            tri.closeSubpath();
+            p.drawPath(tri);
+        }
+        return;
+    }
+
     // ---- 取色（全部来自模板取色函数，禁散落 hex）----
     QColor ink = keyCapInkColor();
     if (!enabled)
         ink = keyCapDisabledInkColor();
-    else if (m_muted)
-        ink = keyCapSubInkColor();
     else if (m_emphasis)
         ink = titleInkColor();           // 实心块上反白
+    else if (m_muted)
+        ink = keyCapSubInkColor();
     else if (m_today)
         ink = brandPanelColor();
 
@@ -128,50 +175,7 @@ void PickerButton::paintEvent(QPaintEvent* event)
     f.setBold(m_emphasis || m_today);
     p.setFont(f);
     p.setPen(ink);
-    p.drawText(rect(), Qt::AlignCenter, text());
-
-    // ---- 标题栏收起钮：直接摆键盘同款矢量图标（标题栏白字色）----
-    if (m_role == Role::Hide) {
-        const QIcon icon = keyIcon(KeyIcon::Hide, titleInkColor());
-        const int s = 24;
-        icon.paint(&p, QRect(rect().center().x() - s / 2, rect().center().y() - s / 2, s, s));
-        return;
-    }
-
-    // ---- 导航钮的矢量箭头（« ‹ › »）：不用字符字体，避免各平台字形缺失 ----
-    if (m_role == Role::Plain && (text().isEmpty() || text() == QStringLiteral("«")
-                                  || text() == QStringLiteral("‹")
-                                  || text() == QStringLiteral("›")
-                                  || text() == QStringLiteral("»"))) {
-        const QString t = text();
-        if (!t.isEmpty()) {
-            p.setPen(Qt::NoPen);
-            p.setBrush(enabled ? keyCapInkColor() : keyCapDisabledInkColor());
-            const bool right = (t == QStringLiteral("›") || t == QStringLiteral("»"));
-            const bool dbl = (t == QStringLiteral("«") || t == QStringLiteral("»"));
-            const qreal cx = rect().center().x();
-            const qreal cy = rect().center().y();
-            const qreal s = 5.0;
-            const int marks = dbl ? 2 : 1;
-            for (int i = 0; i < marks; ++i) {
-                // 单标记：从外往内偏移，双标记自然分开
-                const qreal off = (dbl ? (i == 0 ? -4.0 : 4.0) : 0.0);
-                const qreal x = cx + (right ? -off : off);
-                QPainterPath tri;
-                if (right) {
-                    tri.moveTo(x - s, cy - s);
-                    tri.lineTo(x + s, cy);
-                    tri.lineTo(x - s, cy + s);
-                } else {
-                    tri.moveTo(x + s, cy - s);
-                    tri.lineTo(x - s, cy);
-                    tri.lineTo(x + s, cy + s);
-                }
-                tri.closeSubpath();
-                p.drawPath(tri);
-            }
-        }
-    }
+    p.drawText(rect(), Qt::AlignCenter, t);
 }
 
 // ===========================================================================
