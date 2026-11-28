@@ -52,7 +52,10 @@ PickerButton::PickerButton(Role role, QWidget* parent)
     // 禁自动填充背景：Qt 会在自绘圆角之前铺一层矩形底色，把四角填方
     setAutoFillBackground(false);
     setCursor(Qt::PointingHandCursor);
-    setMinimumHeight(role == Role::Hide ? kNavHeight : kDayCellHeight);
+    // 导航/底栏/收起钮住在 44px 高的条里，最小高必须 ≤44；只有格位（日/年/月）
+    // 才按 46px 触控档给——给高了会把 44px 的条撑破，整块面板的竖向预算随之错位
+    setMinimumHeight(role == Role::Plain || role == Role::Hide ? kNavHeight
+                                                               : kDayCellHeight);
 }
 
 void PickerButton::setEmphasis(bool on)
