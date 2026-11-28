@@ -12,7 +12,9 @@
 #include <QDebug>
 #include <QKeyEvent>
 #include <QColor>
+#include <QPointer>
 #include <QString>
+#include <QTimer>
 #include <QPainterPath>
 #include <QRegion>
 #include <QHash>
@@ -88,10 +90,24 @@ protected:
         if (!m_edit || !m_lineEdit)
             return QObject::eventFilter(watched, event);
 
-        if (event->type() == QEvent::FocusIn
-            || event->type() == QEvent::MouseButtonPress) {
+        // 仅在「获焦」或「点击内嵌文本区」时补一次延迟全选：QTimeEdit 本体上的
+        // 鼠标事件（右侧上下微调箭头）必须原样放行，绝不能连带选中文本。
+        const bool isFocusIn = (event->type() == QEvent::FocusIn);
+        const bool isLineClick = (watched == m_lineEdit)
+                                 && (event->type() == QEvent::MouseButtonPress
+                                     || event->type() == QEvent::MouseButtonRelease);
+        if (isFocusIn || isLineClick) {
             m_freshFocus = true;
             m_cursorPos = 0;
+            // 延后到事件循环下一拍全选：避开 QLineEdit 自身鼠标按下/抬帧清选区
+            // （QLineEdit 的 mousePress 会按点击位置置光标并清掉选区，同帧内
+            // 先 selectAll 会被它反手抹掉，故只能下一拍补）。
+            const QPointer<QLineEdit> le(m_lineEdit);
+            QTimer::singleShot(0, m_lineEdit, [le]() {
+                // focusProxy 形态下焦点归属本体，le->hasFocus() 可能为假，两者取或
+                if (le && (le->hasFocus() || le->parentWidget()->hasFocus()))
+                    le->selectAll();
+            });
             return QObject::eventFilter(watched, event);
         }
 
