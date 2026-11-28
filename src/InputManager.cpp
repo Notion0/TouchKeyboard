@@ -1,5 +1,6 @@
 #include "Keyboard.h"
 #include "T9Keyboard.h"
+#include "DatePicker.h"
 #include "InputManager.h"
 #include <QApplication>
 #include <QAbstractSpinBox>
@@ -78,6 +79,48 @@ void InputManager::ensureT9Keyboard()
         t9Keyboard->setExtraWords(m_extraWords);
 }
 
+void InputManager::ensureDatePicker()
+{
+    if (datePicker || !mainWidget)
+        return;
+    // 与键盘同口径：挂 mainWidget 作普通子控件，不设 Qt::Popup/Qt::Tool 顶层窗
+    // （Weston/X11 下顶层工具窗每次映射都被抢激活权，见 Init 注释）
+    datePicker = new AeaQt::DatePicker(mainWidget);
+    datePicker->setChineseLocale(m_chineseLocale);
+    datePicker->hide();
+    connect(datePicker, &AeaQt::DatePicker::datePicked, this, [this](const QDate &d) {
+        if (!currentDateEdit)
+            return;
+        currentDateEdit->setDate(d);
+        // 跨 Qt5/6 安全触发提交：editingFinished 在部分 Qt5 版本是受保护成员，
+        // 直接 emit 别的类的信号编译期就过不去；invokeMethod 走元对象系统，两版都通
+        QMetaObject::invokeMethod(currentDateEdit, "editingFinished");
+        hideKeyboards();
+    });
+    connect(datePicker, &AeaQt::DatePicker::dismissed, this, [this]() { hideKeyboards(); });
+}
+
+QDateEdit *InputManager::resolveDatePickerEdit(QWidget *w) const
+{
+    if (!w)
+        return nullptr;
+    if (auto *de = qobject_cast<QDateEdit *>(w))
+        return de->property("datePicker").toBool() ? de : nullptr;
+    // 焦点/点击常落在内嵌行编辑上（QDateEdit 经 focusProxy 代理焦点）
+    if (auto *holder = qobject_cast<QDateEdit *>(w->parentWidget()))
+        return holder->property("datePicker").toBool() ? holder : nullptr;
+    return nullptr;
+}
+
+void InputManager::setChineseLocale(bool chinese)
+{
+    if (m_chineseLocale == chinese)
+        return;
+    m_chineseLocale = chinese;
+    if (datePicker)
+        datePicker->setChineseLocale(chinese);
+}
+
 AeaQt::AbstractKeyboard *InputManager::textKeyboard()
 {
     if (m_layout == T9) {
@@ -145,6 +188,9 @@ bool InputManager::isKeyboardWidget(QWidget* w) const
         if (kb && (w == kb || kb->isAncestorOf(w)))
             return true;
     }
+    // 日历面板与它的全部子按钮：点它们绝不能被当成「点了面板外」而收起
+    if (datePicker && (w == datePicker || datePicker->isAncestorOf(w)))
+        return true;
     return false;
 }
 
@@ -156,6 +202,11 @@ void InputManager::hideKeyboards()
     keyboard->hide();
     if (t9Keyboard)
         t9Keyboard->hide();
+    if (datePicker)
+        datePicker->hide();
+    // 必须清零：showDatePicker 靠「已显示且正是同一个日期框」判重，
+    // 不清零的话关掉再点同一个日期框会被当成重复点击而不再弹
+    currentDateEdit = nullptr;
     currentInput = nullptr;
 }
 
@@ -167,6 +218,12 @@ void InputManager::hideKeyboards()
 void InputManager::showKeyboard(QWidget* now)
 {
     if (!now) return;
+
+    // 弹键盘就不能同时留着日历：两者都占主窗下半，叠一起互相抢点击
+    if (datePicker && datePicker->isVisible()) {
+        datePicker->hide();
+        currentDateEdit = nullptr;
+    }
 
     // QSpinBox/QDoubleSpinBox 的焦点实际落在内嵌行编辑（qt_spinbox_lineedit）上，
     // numericInput 属性写在外层 spinbox——沿 QAbstractSpinBox 父链补查一层拿到判据，
@@ -263,6 +320,60 @@ void InputManager::showKeyboard(QWidget* now)
  * - 当输入框获得焦点 → 显示键盘
  * - 当焦点丢失 → 隐藏键盘
  */
+/**
+ * 弹出/刷新触屏日期选择器
+ * - 收起两枚键盘（互斥，见 showKeyboard 同款处理）
+ * - 同步范围/选中日/语言，定位在日期框下方，空间不足自动上翻
+ * - 重复点击同一个日期框：已显示且正是当前框则早退（不重弹、不闪）
+ *   关掉后再点同一个框：hideKeyboards 已把 currentDateEdit 清零，故能再次弹出
+ */
+void InputManager::showDatePicker(QDateEdit *edit)
+{
+    if (!edit || !mainWidget)
+        return;
+    if (datePicker && datePicker->isVisible() && currentDateEdit == edit)
+        return;
+
+    if (keyboard)
+        keyboard->hide();
+    if (t9Keyboard)
+        t9Keyboard->hide();
+
+    ensureDatePicker();
+    if (!datePicker)
+        return;
+
+    datePicker->setChineseLocale(m_chineseLocale);
+    datePicker->setDateRange(edit->minimumDate(), edit->maximumDate());
+    datePicker->setSelectedDate(edit->date());
+    currentDateEdit = edit;
+    currentInput = edit;
+
+    const QSize pickerSize = datePicker->size();
+    const QPoint hostOrigin = mainWidget->mapToGlobal(QPoint(0, 0));
+    const QRect hostRect = mainWidget->rect();
+
+    // 水平：优先贴齐日期框左缘（弹窗贴着触发它的控件，方向感最强），越界再钳回
+    const int editX = edit->mapToGlobal(QPoint(0, 0)).x() - hostOrigin.x();
+    int x = editX;
+    if (x + pickerSize.width() > hostRect.right())
+        x = hostRect.right() - pickerSize.width();
+    if (x < hostRect.left())
+        x = hostRect.left();
+
+    // 垂直：下方优先，下方不够翻到上方，再不够贴顶
+    int y = edit->mapToGlobal(QPoint(0, edit->height())).y() - hostOrigin.y();
+    if (y + pickerSize.height() > hostRect.bottom()) {
+        y = edit->mapToGlobal(QPoint(0, 0)).y() - hostOrigin.y() - pickerSize.height();
+    }
+    if (y < hostRect.top())
+        y = hostRect.top();
+
+    datePicker->move(x, y);
+    datePicker->show();
+    datePicker->raise();
+}
+
 void InputManager::focusChanged(QWidget *old, QWidget *now)
 {
     Q_UNUSED(old);
@@ -275,6 +386,12 @@ void InputManager::focusChanged(QWidget *old, QWidget *now)
     // 没有焦点 → 隐藏
     if (!now) {
         hideKeyboards();
+        return;
+    }
+
+    // 日期框优先于普通输入框：命中了直接弹大日历，不再走下面 QLineEdit 那条路
+    if (QDateEdit *de = resolveDatePickerEdit(now)) {
+        showDatePicker(de);
         return;
     }
 
@@ -314,6 +431,13 @@ bool InputManager::eventFilter(QObject *obj, QEvent *event)
         }
 
         // ⭐ 点击输入框 → 强制弹出（修复关键）
+        // 日期框优先：点击任意区域（文本区或右侧箭头）一律弹大日历。事件就此吞掉——
+        // QDateEdit 自己的 mousePress 会去处理原生微调箭头，留着它会连带弹数字键盘
+        if (QDateEdit *de = resolveDatePickerEdit(widget)) {
+            showDatePicker(de);
+            return true;
+        }
+
         if (widget->inherits("QLineEdit") ||
             widget->inherits("QTextEdit") ||
             widget->inherits("QPlainTextEdit"))

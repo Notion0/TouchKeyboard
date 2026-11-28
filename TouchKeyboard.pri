@@ -9,6 +9,7 @@
 # 资源：模板自带 5 枚图标（qrc 前缀 :/touchkeyboard/icons/），拷走即用。
 # 中文输入：三字典已随本模板 qrc 编入（resources/dicts/，见 README「中文输入」），宿主零配置即得。
 # 布局：InputManager::setTextLayout(InputManager::T9) 设默认九宫格；键盘上「九宫格/全键盘」键运行期切换。
+# 日期输入：AeaQt::setupDatePicker(QDateEdit*) 把日期框接到自绘触屏日历 DatePicker（InputManager 托管弹收）。
 # 换肤：改 src/AbstractKeyboard.h 的 brandLogoText() / brandPanelColor() 一处，两个键盘同时生效。
 
 TOUCHKBD_ROOT = $$PWD
@@ -22,14 +23,16 @@ HEADERS += \
     $$TOUCHKBD_ROOT/src/Keyboard.h \
     $$TOUCHKBD_ROOT/src/T9PinyinEngine.h \
     $$TOUCHKBD_ROOT/src/T9Keyboard.h \
-    $$TOUCHKBD_ROOT/src/InputManager.h
+    $$TOUCHKBD_ROOT/src/InputManager.h \
+    $$TOUCHKBD_ROOT/src/DatePicker.h
 
 SOURCES += \
     $$TOUCHKBD_ROOT/src/KeyButton.cpp \
     $$TOUCHKBD_ROOT/src/Keyboard.cpp \
     $$TOUCHKBD_ROOT/src/T9PinyinEngine.cpp \
     $$TOUCHKBD_ROOT/src/T9Keyboard.cpp \
-    $$TOUCHKBD_ROOT/src/InputManager.cpp
+    $$TOUCHKBD_ROOT/src/InputManager.cpp \
+    $$TOUCHKBD_ROOT/src/DatePicker.cpp
 
 FORMS += $$TOUCHKBD_ROOT/src/Keyboard.ui
 

@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QWidget>
 #include <QAbstractSpinBox>
+#include <QDateEdit>
 #include <QLineEdit>
 #include <QTime>
 #include <QTimeEdit>
@@ -213,6 +214,25 @@ inline void setupDurationEdit(QTimeEdit *edit)
             edit->installEventFilter(filter);
             lineEdit->installEventFilter(filter);
         }
+    }
+}
+
+/// @brief 为 QDateEdit 启用触屏 HMI 大日历选择器（AeaQt::DatePicker，InputManager 托管弹收）。
+///        点击控件任意区域（文本区或右侧箭头）均弹 DatePicker，不再弹数字键盘或原生小日历。
+///        内嵌行编辑置只读：日期只走大日历点选，防手指点出游离输入光标/误输乱码。
+///        幂等，可安全重复调用（口径同 setupDurationEdit）。
+inline void setupDatePicker(QDateEdit *edit)
+{
+    if (!edit)
+        return;
+    edit->setCalendarPopup(false);
+    edit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    edit->setProperty("datePicker", true);
+    edit->setProperty("numericInput", false);
+    if (QLineEdit *le = edit->findChild<QLineEdit *>()) {
+        le->setReadOnly(true);
+        le->setProperty("datePicker", true);
+        le->setProperty("numericInput", false);
     }
 }
 

@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QTextEdit>
 #include <QStringList>
+#include <QPointer>
 #include "AbstractKeyboard.h"
 // 保留传递包含：老宿主经本头间接拿 AeaQt::Keyboard / KeyButton（如按 KeyButton 本地化文案），
 // 去掉会让它们编不过
@@ -25,6 +26,7 @@
 
 namespace AeaQt {
 class T9Keyboard;
+class DatePicker;
 }
 
 using namespace AeaQt;
@@ -47,6 +49,10 @@ public:
     ///        需要跨重启记忆由宿主自行存取）
     void setTextLayout(TextLayout layout);
     TextLayout textLayout() const { return m_layout; }
+
+    /// @brief 日期选择器中英文（默认中文）。宿主切换界面语言时调用；
+    ///        已弹出的日历下一次 showDatePicker 时生效
+    void setChineseLocale(bool chinese);
 
     /// @brief 宿主注入业务词（账户名/房间名/点位名等），进九宫格英文候选。
     ///        26 键全键盘无英文候选，不使用；Init 前调用会缓存，九宫格创建时应用
@@ -79,10 +85,20 @@ private:
     /// @brief 新建键盘的公共收尾：无焦点、隐藏、接布局切换信号
     void prepareKeyboard(AeaQt::AbstractKeyboard *kb);
 
+    /// @brief 命中「该控件是不是挂了大日历的日期框」：本体或内嵌行编辑都算
+    QDateEdit *resolveDatePickerEdit(QWidget *w) const;
+    /// @brief 日期选择器懒创建（不用的宿主不付这份内存）
+    void ensureDatePicker();
+    /// @brief 为某个日期框弹出/刷新日历并定位（重复点击同一框不重弹，见实现）
+    void showDatePicker(QDateEdit *edit);
+
     AeaQt::Keyboard *keyboard = nullptr;          // 26 键全键盘
     AeaQt::T9Keyboard *t9Keyboard = nullptr;      // 九宫格（含数字模式，懒创建）
+    AeaQt::DatePicker *datePicker = nullptr;      // 触屏日期选择器（懒创建）
     QWidget *mainWidget = nullptr;
     QWidget *currentInput = nullptr;
+    QPointer<QDateEdit> currentDateEdit;          ///< 正在被日历编辑的日期框
+    bool m_chineseLocale = true;                  ///< 日历文案语言
     TextLayout m_layout = Qwerty;
     QStringList m_extraWords;   // 业务词缓存：九宫格创建前到达的先存
 protected:
