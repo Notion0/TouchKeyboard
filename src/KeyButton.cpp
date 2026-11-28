@@ -2,11 +2,28 @@
 #include "AeaKeyboardStyle.h"
 #include <QDebug>
 #include <QFontMetrics>
+#include <QMetaType>
 #include <QPainter>
 #include <QPainterPath>
 #include <QRegularExpression>
+#include <QtGlobal>
 
 using namespace AeaQt;
+
+namespace {
+/// @brief QVariant 类型判等的双版本兼容封装。
+/// Qt 6 起 QVariant::type() 已废弃（编译告警），但替代品分版本：typeId() 仅 Qt 6
+/// 有、userType() 两版皆有。用版本宏守护，保住 Qt 5.15/MSVC 宿主构建——模板声明
+/// Qt5/6 双版本通吃，禁直接调用单版本 API。
+inline bool isVariantType(const QVariant &v, int metaTypeId)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return v.typeId() == metaTypeId;
+#else
+    return v.userType() == metaTypeId;
+#endif
+}
+}  // namespace
 
 
 KeyButton::Type KeyButton::find(const QString &value)
@@ -57,12 +74,12 @@ KeyButton::Mode KeyButton::findNext()
 
 void KeyButton::setDisplayContent(const QVariant &content)
 {
-    if (content.type() == QVariant::String) {
+    if (isVariantType(content, QMetaType::QString)) {
         // 直接取 QString：原写法 content.toString().toStdString().data() 先转
         // UTF-8 字节再拼回 QString，纯往返还多一层临时对象生命周期陷阱
         this->setText(content.toString());
     }
-    else if (content.type() == QVariant::Icon) {
+    else if (isVariantType(content, QMetaType::QIcon)) {
         const QIcon &icon = content.value<QIcon>();
         this->setIcon(icon);
     }
@@ -91,7 +108,7 @@ KeyButton::KeyButton(const QList<KeyButton::Mode> modes, QWidget *parent) :
         // （该键 value 为空串）→ 图标在构造期即被冲掉、键帽显示空白。非字符串
         // 显示（QIcon 等）一律原样放行（aerocount 分叉线 2026-09-29 修复，回带）
         if (mode.display.isNull()
-            || (mode.display.type() == QVariant::String
+            || (isVariantType(mode.display, QMetaType::QString)
                 && mode.display.toString().isEmpty())) {
             mode.display = mode.value;
         }

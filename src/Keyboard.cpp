@@ -252,6 +252,7 @@ Keyboard::~Keyboard()
 
 void Keyboard::resizeEvent(QResizeEvent *e)
 {
+    Q_UNUSED(e);   // 尺寸改由 size() 取；与 paintEvent 同风格显式消参
     // 顺序不能反：stretch 先按新宽度重算，resizeButton 的缩字估宽才准
     applyRowStretches();
     resizeButton();
@@ -828,7 +829,7 @@ void ChineseWidget::setText(const QString &text)
     for (int i = 0; i < tmp.count(); i++) {
         const QPair<QString, QString> &each = tmp.at(i);
         /* 模糊匹配 */
-        if (each.first.left(text.count()) != text)
+        if (each.first.left(text.size()) != text)
             continue;
 
         /* 添加到候选栏, 并限制数量 */
@@ -861,8 +862,6 @@ void ChineseWidget::addOneItem(const QString &text)
 
     /* 设置文字居中 */
     item->setTextAlignment(Qt::AlignCenter);
-    const bool isChinese = QRegularExpression(QStringLiteral("^[\u4E00-\u9FA5]+"))
-            .match(text.left(1)).hasMatch();
 
     const QFontMetrics fm(font);
     const int textWidth = fm.horizontalAdvance(text);
